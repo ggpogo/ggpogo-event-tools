@@ -1,0 +1,1175 @@
+<div id="ggpogo-event-tools-root" style="min-height: 100vh; width: 100%;"></div>
+
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-database-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-auth-compat.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+<style>
+  #ggpogo-event-tools-root * { box-sizing: border-box; }
+  #ggpogo-event-tools-root input,
+  #ggpogo-event-tools-root textarea,
+  #ggpogo-event-tools-root select {
+    background: #fff; border: 2.5px solid #E8DEC0; color: #0D2D52; border-radius: 14px;
+    padding: 12px 14px; font-family: 'Fredoka', sans-serif; font-size: 15px; font-weight: 500;
+    width: 100%; outline: none;
+  }
+  #ggpogo-event-tools-root input:focus,
+  #ggpogo-event-tools-root textarea:focus,
+  #ggpogo-event-tools-root select:focus { border-color: #1FA5DC; }
+  #ggpogo-event-tools-root table { width: 100%; border-collapse: collapse; }
+  #ggpogo-event-tools-root th, #ggpogo-event-tools-root td { text-align: left; padding: 8px 6px; }
+</style>
+
+<script type="text/babel">
+(function () {
+  const { useState, useEffect, useRef } = React;
+
+  // ───────────────────────────────────────────────────────────
+  // FIREBASE SETUP
+  // ───────────────────────────────────────────────────────────
+  const firebaseConfig = {
+    apiKey: "AIzaSyDtnqBfQWIbAFUd4cIJbrhwcQrEw1LzJbU",
+    authDomain: "ggpogo-tools.firebaseapp.com",
+    databaseURL: "https://ggpogo-tools-default-rtdb.europe-west1.firebasedatabase.app",
+    projectId: "ggpogo-tools",
+    storageBucket: "ggpogo-tools.firebasestorage.app",
+    messagingSenderId: "1029277084624",
+    appId: "1:1029277084624:web:e0591c7dbabc80467be7d5"
+  };
+  if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
+  const db = firebase.database();
+  const auth = firebase.auth();
+
+  const FB = {
+    async get(path) {
+      try { const s = await db.ref(path).once('value'); return s.val(); }
+      catch (e) { console.error("get", path, e); return null; }
+    },
+    async set(path, val) {
+      try { await db.ref(path).set(val); } catch (e) { console.error("set", path, e); }
+    },
+    async push(path, val) {
+      try { const ref = db.ref(path).push(); await ref.set(val); return ref.key; }
+      catch (e) { console.error("push", path, e); return null; }
+    },
+    async remove(path) {
+      try { await db.ref(path).remove(); } catch (e) { console.error("remove", path, e); }
+    },
+    watch(path, cb) {
+      const ref = db.ref(path);
+      ref.on('value', s => cb(s.val()));
+      return () => ref.off('value');
+    }
+  };
+
+  function genId() { return Math.random().toString(36).slice(2, 10); }
+  function fingerprint() {
+    const n = navigator;
+    const raw = [n.userAgent, n.language, screen.width, screen.height, screen.colorDepth, new Date().getTimezoneOffset(), n.hardwareConcurrency, n.maxTouchPoints].join("|");
+    let h = 0;
+    for (let i = 0; i < raw.length; i++) h = ((h << 5) - h + raw.charCodeAt(i)) | 0;
+    return "fp_" + Math.abs(h).toString(36);
+  }
+  function nowTime() {
+    return new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  }
+
+  // ───────────────────────────────────────────────────────────
+  // CODES STORAGE — stored in Firebase as an object map keyed by
+  // code id (required for per-item security rules), used in the
+  // app as an array for easy filtering/rendering.
+  // ───────────────────────────────────────────────────────────
+  function codesObjToArray(obj) {
+    if (!obj) return [];
+    return Object.entries(obj).map(([id, v]) => ({ id, value: v.value, claimed: !!v.claimed, claimedBy: v.claimedBy || null }));
+  }
+  function codesArrayToObj(arr) {
+    const obj = {};
+    arr.forEach(x => { obj[x.id] = { value: x.value, claimed: !!x.claimed, claimedBy: x.claimedBy || null }; });
+    return obj;
+  }
+  // Attendee-side: claim ONE code by writing only to its own node.
+  // This is the only write attendees are allowed to make to cd:codes,
+  // and only flips claimed/claimedBy on an existing entry (see rules).
+  async function claimCodeNode(codeId, claimedBy) {
+    await FB.set(`cd:codes/${codeId}/claimed`, true);
+    await FB.set(`cd:codes/${codeId}/claimedBy`, claimedBy);
+  }
+  async function unclaimCodeNode(codeId) {
+    await FB.set(`cd:codes/${codeId}/claimed`, false);
+    await FB.set(`cd:codes/${codeId}/claimedBy`, null);
+  }
+  // Session log is stored as a push()-keyed object so attendees can
+  // append an entry without write access to sibling entries.
+  function logObjToArray(obj) {
+    if (!obj) return [];
+    return Object.entries(obj).map(([key, v]) => ({ key, ...v }));
+  }
+
+  // ───────────────────────────────────────────────────────────
+  // DEFAULT COLORS / BRANDING
+  // ───────────────────────────────────────────────────────────
+  const DEFAULT_BRAND = {
+    grassMid: "#7DC25C", grassDeep: "#3F8A36",
+    paper: "#FFFCF2", paperDim: "#F5EFDC", paperEdge: "#E8DEC0",
+    blue: "#1FA5DC", blueDeep: "#0E5C9E",
+    orange: "#F08838", orangeDeep: "#C45A1F",
+    strawberry: "#E84A3D", strawDeep: "#A82A20",
+    sun: "#F5C842", sunDeep: "#C99520",
+    purple: "#7B5BC9", purpleDeep: "#4B348C",
+    ink: "#0D2D52", inkSoft: "#3D5B82", inkMute: "#7A8FA8",
+    bgImage: "", // optional custom background image URL
+    logoImage: "", // optional custom logo URL
+  };
+
+  // ───────────────────────────────────────────────────────────
+  // SHARED UI PRIMITIVES (branding-aware)
+  // ───────────────────────────────────────────────────────────
+  function useBrand() {
+    const [brand, setBrand] = useState(DEFAULT_BRAND);
+    useEffect(() => {
+      const unwatch = FB.watch("settings:branding", (val) => {
+        setBrand({ ...DEFAULT_BRAND, ...(val || {}) });
+      });
+      return unwatch;
+    }, []);
+    return brand;
+  }
+
+  function StickerBtn({ children, onClick, fill, shadow, disabled, style = {}, small }) {
+    const dis = disabled ? { opacity: 0.4, cursor: "not-allowed" } : {};
+    return (
+      <button
+        onClick={disabled ? undefined : onClick}
+        style={{
+          display: "inline-block", background: fill, border: "3px solid #fff", borderRadius: 999,
+          padding: small ? "8px 16px" : "12px 24px", color: "#fff", fontFamily: "Fredoka, sans-serif",
+          fontWeight: 700, fontSize: small ? 13 : 15, letterSpacing: 0.5, outline: "none",
+          boxShadow: `0 0 0 2px ${shadow}, 0 4px 0 ${shadow}, 0 8px 12px rgba(13, 45, 82, 0.15)`,
+          cursor: disabled ? "not-allowed" : "pointer", ...dis, ...style,
+        }}
+      >
+        {children}
+      </button>
+    );
+  }
+
+  function Paper({ children, style = {}, accent, c }) {
+    return (
+      <div style={{
+        background: c.paper, borderRadius: 22, padding: 20,
+        boxShadow: `0 1px 0 ${c.paperEdge}, 0 2px 0 -1px ${c.paperEdge}, 0 12px 24px rgba(13, 45, 82, 0.12)`,
+        position: "relative", borderTop: accent ? `5px solid ${accent}` : "none", ...style,
+      }}>
+        {children}
+      </div>
+    );
+  }
+
+  function QR({ data, size = 180 }) {
+    const url = `https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&data=${encodeURIComponent(data)}&bgcolor=FFFCF2&color=0D2D52&format=svg&margin=2`;
+    return <img src={url} width={size} height={size} alt="QR" style={{ display: "block" }} />;
+  }
+
+  function IconBox({ emoji, bg, border, size = 64, fontSize = 32 }) {
+    return (
+      <div style={{ width: size, height: size, background: bg, borderRadius: size * 0.3, border: "3px solid #fff", boxShadow: `0 0 0 2px ${border}, 0 3px 0 ${border}`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, fontSize }}>{emoji}</div>
+    );
+  }
+
+  function BackButton({ onClick, c }) {
+    return (
+      <button onClick={onClick} style={{ background: "transparent", border: "none", cursor: "pointer", padding: 8 }}>
+        <div style={{ width: 40, height: 40, background: "#fff", borderRadius: 12, border: "3px solid #fff", boxShadow: `0 0 0 2px ${c.blueDeep}, 0 3px 0 ${c.blueDeep}`, display: "flex", alignItems: "center", justifyContent: "center", color: c.ink, flexShrink: 0, fontSize: 18 }}>←</div>
+      </button>
+    );
+  }
+
+  // ───────────────────────────────────────────────────────────
+  // AUTH GATE (host login)
+  // ───────────────────────────────────────────────────────────
+  function HostLogin({ c, onSuccess }) {
+    const [email, setEmail] = useState("");
+    const [pw, setPw] = useState("");
+    const [error, setError] = useState("");
+    const [busy, setBusy] = useState(false);
+
+    const login = async () => {
+      setError(""); setBusy(true);
+      try {
+        await auth.signInWithEmailAndPassword(email.trim(), pw);
+        onSuccess && onSuccess();
+      } catch (e) {
+        setError("Login failed. Check your email and password.");
+      }
+      setBusy(false);
+    };
+
+    return (
+      <div style={{ maxWidth: 380, margin: "0 auto", paddingTop: 40 }}>
+        <Paper c={c} accent={c.blue} style={{ textAlign: "center", padding: "28px 22px" }}>
+          <div style={{ fontSize: 40, marginBottom: 10 }}>🔒</div>
+          <h2 style={{ fontFamily: "Fredoka, sans-serif", fontSize: 20, fontWeight: 700, color: c.ink, marginBottom: 6 }}>Host Login</h2>
+          <p style={{ color: c.inkSoft, fontSize: 13, marginBottom: 18 }}>This area is for event hosts only.</p>
+          <input value={email} onChange={e => setEmail(e.target.value)} placeholder="Email" style={{ marginBottom: 10 }} onKeyDown={e => e.key === "Enter" && login()} />
+          <input value={pw} onChange={e => setPw(e.target.value)} placeholder="Password" type="password" style={{ marginBottom: 14 }} onKeyDown={e => e.key === "Enter" && login()} />
+          {error && <div style={{ color: c.strawberry, fontSize: 12, marginBottom: 10, fontWeight: 600 }}>{error}</div>}
+          <StickerBtn fill={c.blue} shadow={c.blueDeep} onClick={login} disabled={busy || !email || !pw} style={{ width: "100%", padding: 14 }}>
+            {busy ? "Signing in..." : "Sign in"}
+          </StickerBtn>
+        </Paper>
+      </div>
+    );
+  }
+
+  // ───────────────────────────────────────────────────────────
+  // HOME
+  // ───────────────────────────────────────────────────────────
+  function Home({ setView, c, user }) {
+    return (
+      <div style={{ maxWidth: 460, margin: "0 auto" }}>
+        <div style={{ textAlign: "center", marginBottom: 32 }}>
+          {c.logoImage ? (
+            <img src={c.logoImage} alt="Logo" style={{ maxWidth: 220, display: "inline-block" }} />
+          ) : (
+            <div style={{ display: "inline-block", background: "#fff", borderRadius: 28, padding: "18px 28px", boxShadow: `0 0 0 2px ${c.blueDeep}, 0 4px 0 ${c.blueDeep}, 0 8px 12px rgba(13, 45, 82, 0.15)` }}>
+              <div style={{ fontFamily: "Fredoka, sans-serif", fontWeight: 700, fontSize: 28, color: c.blueDeep, letterSpacing: 1, lineHeight: 1 }}>GARDEN GROVE</div>
+              <div style={{ fontFamily: "Fredoka, sans-serif", fontWeight: 600, fontSize: 18, color: c.blue, marginTop: 2, letterSpacing: 1 }}>PoGo</div>
+            </div>
+          )}
+          <div style={{ marginTop: 14 }}>
+            <div style={{ display: "inline-block", background: c.purple, color: "#fff", padding: "8px 22px", borderRadius: 12, border: "3px solid #fff", boxShadow: `0 0 0 2px ${c.purpleDeep}, 0 4px 0 ${c.purpleDeep}, 0 8px 12px rgba(13, 45, 82, 0.18)`, fontFamily: "Fredoka, sans-serif", fontWeight: 700, fontSize: 18, letterSpacing: 1, textTransform: "uppercase" }}>Event Tools</div>
+          </div>
+        </div>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+          <div onClick={() => setView("codedrop")} style={{ cursor: "pointer" }}>
+            <Paper c={c} accent={c.blue} style={{ padding: "20px 22px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+                <IconBox emoji="📦" bg={c.blue + "33"} border={c.blueDeep} />
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontWeight: 700, fontSize: 22, color: c.ink, lineHeight: 1 }}>Code Drop</div>
+                  <div style={{ color: c.inkSoft, fontSize: 13, lineHeight: 1.4, marginTop: 6 }}>Queue promo codes and distribute them live by QR scan.</div>
+                </div>
+                <div style={{ color: c.blue, fontSize: 28, fontWeight: 700 }}>›</div>
+              </div>
+            </Paper>
+          </div>
+          <div onClick={() => setView("giveaway")} style={{ cursor: "pointer" }}>
+            <Paper c={c} accent={c.strawberry} style={{ padding: "20px 22px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+                <IconBox emoji="🎁" bg={c.strawberry + "33"} border={c.strawDeep} />
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontWeight: 700, fontSize: 22, color: c.ink, lineHeight: 1 }}>Giveaway</div>
+                  <div style={{ color: c.inkSoft, fontSize: 13, lineHeight: 1.4, marginTop: 6 }}>Run live prize raffles with spin animations.</div>
+                </div>
+                <div style={{ color: c.strawberry, fontSize: 28, fontWeight: 700 }}>›</div>
+              </div>
+            </Paper>
+          </div>
+          {user && (
+            <div onClick={() => setView("branding")} style={{ cursor: "pointer" }}>
+              <Paper c={c} accent={c.sun} style={{ padding: "16px 22px" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+                  <IconBox emoji="🎨" bg={c.sun + "33"} border={c.sunDeep} size={48} fontSize={22} />
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontWeight: 700, fontSize: 17, color: c.ink, lineHeight: 1 }}>Branding</div>
+                    <div style={{ color: c.inkSoft, fontSize: 12, lineHeight: 1.4, marginTop: 4 }}>Customize colors, background &amp; logo</div>
+                  </div>
+                  <div style={{ color: c.sun, fontSize: 24, fontWeight: 700 }}>›</div>
+                </div>
+              </Paper>
+            </div>
+          )}
+        </div>
+
+        {user && (
+          <div style={{ textAlign: "center", marginTop: 16 }}>
+            <button onClick={() => auth.signOut()} style={{ background: "transparent", border: "none", color: c.inkMute, fontSize: 12, fontWeight: 600, cursor: "pointer", textDecoration: "underline" }}>
+              Sign out ({user.email})
+            </button>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // ───────────────────────────────────────────────────────────
+  // CODE DROP — HOST DASHBOARD
+  // ───────────────────────────────────────────────────────────
+  function CodeDropApp({ setView, c }) {
+    const [screen, setScreen] = useState("dashboard"); // dashboard | session | manage | history
+    const [codes, setCodes] = useState([]);
+    const [raw, setRaw] = useState("");
+    const [loading, setLoading] = useState(true);
+    const [addMsg, setAddMsg] = useState("");
+    const [limitEnabled, setLimitEnabled] = useState(false);
+    const [limitValue, setLimitValue] = useState(10);
+    const [sessionActive, setSessionActive] = useState(null); // null = checking, true/false once known
+
+    useEffect(() => {
+      const unwatch1 = FB.watch("cd:codes", (val) => { setCodes(codesObjToArray(val)); setLoading(false); });
+      const unwatch2 = FB.watch("cd:settings", (val) => {
+        if (val) {
+          setLimitEnabled(!!val.limitEnabled);
+          setLimitValue(val.limitValue || 10);
+        }
+      });
+      return () => { unwatch1(); unwatch2(); };
+    }, []);
+
+    // If a live session already exists in Firebase, jump straight to it
+    // (so navigating away and back doesn't lose track of an in-progress session,
+    // and so "Start New Session" can't be double-clicked to wipe an active one).
+    useEffect(() => {
+      const unwatch = FB.watch("cd:session", (val) => {
+        const active = !!val;
+        setSessionActive(active);
+        if (active && screen === "dashboard") setScreen("session");
+      });
+      return unwatch;
+    }, []);
+
+    const addCodes = async () => {
+      const lines = raw.split(/[\n,]+/).map(s => s.trim()).filter(Boolean);
+      if (!lines.length) return;
+      const existingValues = new Set(codes.map(x => x.value.toLowerCase()));
+      const seen = new Set();
+      let added = 0, dupes = 0;
+      const newOnes = [];
+      for (const v of lines) {
+        const key = v.toLowerCase();
+        if (existingValues.has(key) || seen.has(key)) { dupes++; continue; }
+        seen.add(key);
+        newOnes.push({ id: genId(), value: v, claimed: false, claimedBy: null });
+        added++;
+      }
+      if (newOnes.length) {
+        const updated = [...codes, ...newOnes];
+        await FB.set("cd:codes", codesArrayToObj(updated));
+      }
+      setRaw("");
+      if (dupes > 0) {
+        setAddMsg(`✓ ${added} code${added !== 1 ? 's' : ''} added. ${dupes} duplicate${dupes !== 1 ? 's' : ''} skipped.`);
+      } else {
+        setAddMsg(`✓ ${added} code${added !== 1 ? 's' : ''} added.`);
+      }
+      setTimeout(() => setAddMsg(""), 4000);
+    };
+
+    const saveSessionSettings = async (enabled, val) => {
+      setLimitEnabled(enabled);
+      setLimitValue(val);
+      await FB.set("cd:settings", { limitEnabled: enabled, limitValue: val });
+    };
+
+    const startSession = async () => {
+      // Safety check: never overwrite an in-progress session (would wipe its claims/log)
+      const existing = await FB.get("cd:session");
+      if (existing) { setScreen("session"); return; }
+      const sessId = genId();
+      const sess = {
+        id: sessId, paused: false, startedAt: Date.now(),
+        limitEnabled, limitValue: limitEnabled ? Number(limitValue) : null,
+        claimedCount: 0,
+      };
+      await FB.set("cd:session", sess);
+      await FB.set("cd:claims", {});
+      await FB.set("cd:sessionLog", null);
+      setScreen("session");
+    };
+
+    const unused = codes.filter(x => !x.claimed);
+    const claimed = codes.filter(x => x.claimed);
+
+    if (loading) return <CenterMsg c={c} text="Loading…" />;
+
+    if (screen === "session") return <CodeDropSession c={c} codes={codes} onExit={() => setScreen("dashboard")} />;
+    if (screen === "manage") return <CodeManage c={c} codes={codes} onBack={() => setScreen("dashboard")} />;
+    if (screen === "history") return <SessionHistory c={c} onBack={() => setScreen("dashboard")} />;
+
+    return (
+      <div style={{ maxWidth: 460, margin: "0 auto" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20 }}>
+          <BackButton c={c} onClick={() => setView("home")} />
+          <div style={{ flex: 1 }}>
+            <div style={{ fontWeight: 700, fontSize: 22, color: "#fff", textShadow: "0 2px 4px rgba(0,0,0,0.25)", lineHeight: 1.1 }}>Code Drop</div>
+            <div style={{ fontSize: 13, color: c.blue, fontWeight: 600, marginTop: 2 }}>Distributor</div>
+          </div>
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
+          <Paper c={c} style={{ padding: "14px 12px", textAlign: "center" }}>
+            <div style={{ fontSize: 30, fontWeight: 700, color: c.ink, lineHeight: 1 }}>{unused.length}</div>
+            <div style={{ fontSize: 11, color: c.inkMute, letterSpacing: 1.5, fontWeight: 700, marginTop: 4 }}>UNUSED</div>
+          </Paper>
+          <Paper c={c} style={{ padding: "14px 12px", textAlign: "center" }}>
+            <div style={{ fontSize: 30, fontWeight: 700, color: c.ink, lineHeight: 1 }}>{claimed.length}</div>
+            <div style={{ fontSize: 11, color: c.inkMute, letterSpacing: 1.5, fontWeight: 700, marginTop: 4 }}>CLAIMED</div>
+          </Paper>
+        </div>
+
+        {/* Quick links */}
+        <div style={{ display: "flex", gap: 10, marginBottom: 16 }}>
+          <StickerBtn fill={c.purple} shadow={c.purpleDeep} small onClick={() => setScreen("manage")} style={{ flex: 1 }}><span style={{ fontSize: 14 }}>🗂</span> Manage codes</StickerBtn>
+          <StickerBtn fill={c.sun} shadow={c.sunDeep} small onClick={() => setScreen("history")} style={{ flex: 1, color: c.ink }}><span style={{ fontSize: 14 }}>📜</span> History</StickerBtn>
+        </div>
+
+        <Paper c={c} accent={c.blue} style={{ marginBottom: 16 }}>
+          <div style={{ fontWeight: 700, fontSize: 15, color: c.ink, marginBottom: 12 }}>Add Codes</div>
+          <textarea value={raw} onChange={e => setRaw(e.target.value)} placeholder="Paste codes here, one per line..." rows={4} style={{ marginBottom: 10 }} />
+          <StickerBtn fill={c.blue} shadow={c.blueDeep} onClick={addCodes} style={{ width: "100%", padding: 14 }}>+ ADD TO POOL</StickerBtn>
+          {addMsg && <div style={{ marginTop: 10, fontSize: 12, fontWeight: 700, color: c.grassDeep, textAlign: "center" }}>{addMsg}</div>}
+        </Paper>
+
+        <Paper c={c} accent={c.orange} style={{ marginBottom: 16 }}>
+          <div style={{ fontWeight: 700, fontSize: 15, color: c.ink, marginBottom: 10 }}>Session Settings</div>
+          <label style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 13, color: c.inkSoft, fontWeight: 600, marginBottom: limitEnabled ? 10 : 0, cursor: "pointer" }}>
+            <input type="checkbox" checked={limitEnabled} onChange={e => saveSessionSettings(e.target.checked, limitValue)} style={{ width: "auto", padding: 0 }} />
+            Limit codes given out this session
+          </label>
+          {limitEnabled && (
+            <input type="number" min={1} value={limitValue} onChange={e => saveSessionSettings(true, Number(e.target.value))} placeholder="Max codes to give away" />
+          )}
+          {!limitEnabled && <div style={{ fontSize: 12, color: c.inkMute }}>Unlimited — gives out codes until the pool runs dry.</div>}
+        </Paper>
+
+        {sessionActive && (
+          <div style={{ textAlign: "center", marginBottom: 16, padding: "10px 14px", background: "#fff", borderRadius: 14, border: `2px solid ${c.strawberry}` }}>
+            <div style={{ fontSize: 12, color: c.strawDeep, fontWeight: 700, marginBottom: 8 }}>● A session is currently live</div>
+            <StickerBtn fill={c.strawberry} shadow={c.strawDeep} small onClick={() => setScreen("session")}>Resume live session</StickerBtn>
+          </div>
+        )}
+
+        {codes.length > 0 && !sessionActive && (
+          <div style={{ textAlign: "center", marginTop: 8 }}>
+            <StickerBtn fill={c.orange} shadow={c.orangeDeep} onClick={startSession} disabled={unused.length === 0} style={{ fontSize: 17, padding: "16px 36px" }}>
+              ▶ START NEW SESSION
+            </StickerBtn>
+            {unused.length === 0 && <div style={{ marginTop: 10, fontSize: 12, color: c.strawberry, fontWeight: 700 }}>No unused codes available. Add more above.</div>}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  function CenterMsg({ c, text }) {
+    return <div style={{ maxWidth: 460, margin: "0 auto", textAlign: "center", color: "#fff", paddingTop: 40, fontWeight: 600 }}>{text}</div>;
+  }
+
+  // ───────────────────────────────────────────────────────────
+  // CODE MANAGEMENT (CRUD table)
+  // ───────────────────────────────────────────────────────────
+  function CodeManage({ c, codes, onBack }) {
+    const [search, setSearch] = useState("");
+    const [filter, setFilter] = useState("all"); // all | unused | claimed
+    const [newCode, setNewCode] = useState("");
+    const [selectMode, setSelectMode] = useState(false);
+    const [selected, setSelected] = useState(() => new Set());
+
+    const toggle = async (id) => {
+      const target = codes.find(x => x.id === id);
+      if (!target) return;
+      const willBeClaimed = !target.claimed;
+      await FB.set(`cd:codes/${id}/claimed`, willBeClaimed);
+      await FB.set(`cd:codes/${id}/claimedBy`, willBeClaimed ? (target.claimedBy || "Manually marked") : null);
+    };
+    const remove = async (id) => {
+      if (!confirm("Delete this code permanently?")) return;
+      await FB.remove(`cd:codes/${id}`);
+    };
+    const addOne = async () => {
+      const v = newCode.trim();
+      if (!v) return;
+      if (codes.some(x => x.value.toLowerCase() === v.toLowerCase())) {
+        alert("This code already exists in the pool.");
+        return;
+      }
+      const id = genId();
+      await FB.set(`cd:codes/${id}`, { value: v, claimed: false, claimedBy: null });
+      setNewCode("");
+    };
+    const deleteAllClaimed = async () => {
+      if (!confirm("Remove all claimed codes from the pool? This can't be undone.")) return;
+      const remaining = codes.filter(x => !x.claimed);
+      await FB.set("cd:codes", codesArrayToObj(remaining));
+    };
+
+    const toggleSelected = (id) => {
+      setSelected(prev => {
+        const next = new Set(prev);
+        if (next.has(id)) next.delete(id); else next.add(id);
+        return next;
+      });
+    };
+    const deleteSelected = async () => {
+      if (!selected.size) return;
+      if (!confirm(`Delete ${selected.size} selected code${selected.size !== 1 ? 's' : ''} permanently?`)) return;
+      const remaining = codes.filter(x => !selected.has(x.id));
+      await FB.set("cd:codes", codesArrayToObj(remaining));
+      setSelected(new Set());
+    };
+    const exitSelectMode = () => {
+      setSelectMode(false);
+      setSelected(new Set());
+    };
+
+    const filtered = codes.filter(x => {
+      if (filter === "unused" && x.claimed) return false;
+      if (filter === "claimed" && !x.claimed) return false;
+      if (search && !x.value.toLowerCase().includes(search.toLowerCase()) && !(x.claimedBy || "").toLowerCase().includes(search.toLowerCase())) return false;
+      return true;
+    });
+
+    return (
+      <div style={{ maxWidth: 520, margin: "0 auto" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20 }}>
+          <BackButton c={c} onClick={onBack} />
+          <div style={{ flex: 1 }}>
+            <div style={{ fontWeight: 700, fontSize: 22, color: "#fff", textShadow: "0 2px 4px rgba(0,0,0,0.25)", lineHeight: 1.1 }}>Manage Codes</div>
+            <div style={{ fontSize: 13, color: c.blue, fontWeight: 600, marginTop: 2 }}>{codes.length} total</div>
+          </div>
+          <StickerBtn fill={selectMode ? c.paperDim : c.purple} shadow={selectMode ? c.paperEdge : c.purpleDeep} small onClick={() => selectMode ? exitSelectMode() : setSelectMode(true)} style={{ color: selectMode ? c.ink : "#fff" }}>
+            {selectMode ? "Done" : "Select"}
+          </StickerBtn>
+        </div>
+
+        <Paper c={c} accent={c.purple} style={{ marginBottom: 14 }}>
+          <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+            <input value={newCode} onChange={e => setNewCode(e.target.value)} placeholder="Add a single code..." onKeyDown={e => e.key === "Enter" && addOne()} />
+            <StickerBtn fill={c.purple} shadow={c.purpleDeep} small onClick={addOne}>Add</StickerBtn>
+          </div>
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search codes or names..." style={{ marginBottom: 10 }} />
+          <div style={{ display: "flex", gap: 8 }}>
+            {["all", "unused", "claimed"].map(f => (
+              <button key={f} onClick={() => setFilter(f)} style={{
+                flex: 1, padding: "8px 0", borderRadius: 10, border: `2px solid ${filter === f ? c.purple : c.paperEdge}`,
+                background: filter === f ? c.purple : "#fff", color: filter === f ? "#fff" : c.inkMute,
+                fontFamily: "Fredoka, sans-serif", fontWeight: 700, fontSize: 12, cursor: "pointer", textTransform: "uppercase", letterSpacing: 0.5
+              }}>{f}</button>
+            ))}
+          </div>
+          {selectMode && (
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 10, paddingTop: 10, borderTop: `1px dashed ${c.paperEdge}` }}>
+              <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: c.inkSoft, fontWeight: 600, cursor: "pointer" }}>
+                <input
+                  type="checkbox"
+                  style={{ width: "auto", padding: 0 }}
+                  checked={filtered.length > 0 && filtered.every(x => selected.has(x.id))}
+                  onChange={e => {
+                    setSelected(prev => {
+                      const next = new Set(prev);
+                      if (e.target.checked) filtered.forEach(x => next.add(x.id));
+                      else filtered.forEach(x => next.delete(x.id));
+                      return next;
+                    });
+                  }}
+                />
+                Select all shown ({filtered.length})
+              </label>
+              <span style={{ fontSize: 12, color: c.inkMute, fontWeight: 600 }}>{selected.size} selected</span>
+            </div>
+          )}
+        </Paper>
+
+        <Paper c={c}>
+          {filtered.length === 0 ? (
+            <div style={{ textAlign: "center", color: c.inkMute, padding: "20px 0", fontSize: 13 }}>No codes match.</div>
+          ) : (
+            <div style={{ maxHeight: 420, overflowY: "auto" }}>
+              <table>
+                <thead>
+                  <tr style={{ borderBottom: `2px solid ${c.paperEdge}` }}>
+                    {selectMode && <th style={{ width: 28 }}></th>}
+                    <th style={{ fontSize: 11, color: c.inkMute, letterSpacing: 1 }}>CODE</th>
+                    <th style={{ fontSize: 11, color: c.inkMute, letterSpacing: 1 }}>STATUS</th>
+                    <th style={{ fontSize: 11, color: c.inkMute, letterSpacing: 1 }}></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filtered.map(x => {
+                    const isSel = selectMode ? selected.has(x.id) : false;
+                    const rowBg = isSel ? (c.purple + "1A") : "transparent";
+                    return (
+                    <tr key={x.id} style={{ borderBottom: `1px dashed ${c.paperEdge}`, background: rowBg }}>
+                      {selectMode && (
+                        <td>
+                          <input type="checkbox" checked={selected.has(x.id)} onChange={() => toggleSelected(x.id)} style={{ width: "auto", padding: 0 }} />
+                        </td>
+                      )}
+                      <td style={{ fontFamily: "monospace", fontSize: 13, color: c.ink, wordBreak: "break-all" }}>
+                        {x.value}
+                        {x.claimedBy && <div style={{ fontSize: 11, color: c.inkMute, fontFamily: "Fredoka, sans-serif" }}>by {x.claimedBy}</div>}
+                      </td>
+                      <td>
+                        <button onClick={() => toggle(x.id)} style={{
+                          fontSize: 11, fontWeight: 700, letterSpacing: 1, padding: "4px 10px", borderRadius: 8, border: "none", cursor: "pointer",
+                          background: x.claimed ? c.grassMid + "33" : c.sun + "33", color: x.claimed ? c.grassDeep : c.sunDeep
+                        }}>
+                          {x.claimed ? "CLAIMED" : "UNUSED"}
+                        </button>
+                      </td>
+                      <td>
+                        {!selectMode && <button onClick={() => remove(x.id)} style={{ background: "transparent", border: "none", color: c.strawberry, cursor: "pointer", fontSize: 16, fontWeight: 700 }}>×</button>}
+                      </td>
+                    </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Paper>
+
+        <div style={{ textAlign: "center", marginTop: 16 }}>
+          {selectMode ? (
+            <StickerBtn fill={c.strawberry} shadow={c.strawDeep} small disabled={selected.size === 0} onClick={deleteSelected}>
+              Delete selected ({selected.size})
+            </StickerBtn>
+          ) : (
+            <StickerBtn fill={c.strawberry} shadow={c.strawDeep} small onClick={deleteAllClaimed}>Clear all claimed codes</StickerBtn>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // ───────────────────────────────────────────────────────────
+  // SESSION HISTORY
+  // ───────────────────────────────────────────────────────────
+  function SessionHistory({ c, onBack }) {
+    const [history, setHistory] = useState([]);
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+      const unwatch = FB.watch("cd:history", (val) => {
+        const arr = val ? Object.entries(val).map(([key, v]) => ({ key, ...v })) : [];
+        arr.sort((a, b) => b.endedAt - a.endedAt);
+        setHistory(arr);
+        setLoading(false);
+      });
+      return unwatch;
+    }, []);
+
+    const exportCsv = (session) => {
+      const rows = [["Name", "Code", "Time"]];
+      (session.claims || []).forEach(cl => rows.push([cl.name, cl.code, new Date(cl.time).toLocaleString()]));
+      const csv = rows.map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(",")).join("\n");
+      const blob = new Blob([csv], { type: "text/csv" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `codedrop-session-${new Date(session.startedAt).toISOString().slice(0, 10)}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    };
+
+    return (
+      <div style={{ maxWidth: 460, margin: "0 auto" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20 }}>
+          <BackButton c={c} onClick={onBack} />
+          <div style={{ flex: 1 }}>
+            <div style={{ fontWeight: 700, fontSize: 22, color: "#fff", textShadow: "0 2px 4px rgba(0,0,0,0.25)", lineHeight: 1.1 }}>Session History</div>
+            <div style={{ fontSize: 13, color: c.blue, fontWeight: 600, marginTop: 2 }}>{history.length} past session{history.length !== 1 ? 's' : ''}</div>
+          </div>
+        </div>
+
+        {loading && <CenterMsg c={c} text="Loading…" />}
+        {!loading && history.length === 0 && (
+          <Paper c={c} style={{ textAlign: "center", padding: "28px 20px", color: c.inkMute }}>No past sessions yet.</Paper>
+        )}
+        {history.map(h => (
+          <Paper key={h.key} c={c} style={{ marginBottom: 12 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+              <div style={{ fontWeight: 700, fontSize: 14, color: c.ink }}>{new Date(h.startedAt).toLocaleDateString()} · {new Date(h.startedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</div>
+              <StickerBtn fill={c.blue} shadow={c.blueDeep} small onClick={() => exportCsv(h)}>↓ CSV</StickerBtn>
+            </div>
+            <div style={{ fontSize: 12, color: c.inkMute, marginBottom: 8 }}>{(h.claims || []).length} code{(h.claims || []).length !== 1 ? 's' : ''} claimed</div>
+            {(h.claims || []).length > 0 && (
+              <div style={{ maxHeight: 140, overflowY: "auto" }}>
+                {h.claims.map((cl, i) => (
+                  <div key={i} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, padding: "4px 0", borderBottom: i < h.claims.length - 1 ? `1px dashed ${c.paperEdge}` : "none" }}>
+                    <span style={{ fontWeight: 600, color: c.ink }}>{cl.name}</span>
+                    <span style={{ fontFamily: "monospace", color: c.inkMute }}>{cl.code.length > 14 ? cl.code.slice(0, 12) + "…" : cl.code}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </Paper>
+        ))}
+      </div>
+    );
+  }
+
+  // ───────────────────────────────────────────────────────────
+  // CODE DROP — LIVE SESSION (host view)
+  // ───────────────────────────────────────────────────────────
+  function CodeDropSession({ c, codes, onExit }) {
+    const [fullscreen, setFullscreen] = useState(false);
+    const [session, setSession] = useState(null);
+    const [sessionLoaded, setSessionLoaded] = useState(false);
+    const [claims, setClaims] = useState({});
+    const [link, setLink] = useState("");
+
+    useEffect(() => {
+      const unwatch1 = FB.watch("cd:session", (val) => { setSession(val); setSessionLoaded(true); });
+      const unwatch2 = FB.watch("cd:claims", (val) => setClaims(val || {}));
+      return () => { unwatch1(); unwatch2(); };
+    }, []);
+
+    useEffect(() => {
+      if (session) {
+        setLink(`${window.location.origin}${window.location.pathname}?cd_claim=${session.id}`);
+      }
+    }, [session]);
+
+    if (!sessionLoaded) return <CenterMsg c={c} text="Loading session…" />;
+
+    if (!session) {
+      return (
+        <div style={{ maxWidth: 460, margin: "0 auto" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20 }}>
+            <BackButton c={c} onClick={onExit} />
+            <div style={{ fontWeight: 700, fontSize: 22, color: "#fff", textShadow: "0 2px 4px rgba(0,0,0,0.25)", lineHeight: 1.1 }}>Code Distributor</div>
+          </div>
+          <Paper c={c} style={{ textAlign: "center", padding: "28px 20px", color: c.inkMute }}>
+            <div style={{ fontSize: 15, fontWeight: 600, color: c.ink, marginBottom: 8 }}>No session is currently live</div>
+            <p style={{ fontSize: 13, lineHeight: 1.5 }}>This session may have ended already. Head back to the dashboard to start a new one.</p>
+          </Paper>
+        </div>
+      );
+    }
+
+    const unused = codes.filter(x => !x.claimed);
+    const claimedList = codes.filter(x => x.claimed);
+    const claimedThisSession = session.claimedCount || 0;
+    const limitReached = session.limitEnabled && claimedThisSession >= session.limitValue;
+    const lowStock = unused.length > 0 && unused.length <= 3;
+
+    const togglePause = async () => {
+      await FB.set("cd:session", { ...session, paused: !session.paused });
+    };
+
+    const endSession = async () => {
+      // Save to history
+      const sessionLog = logObjToArray(await FB.get("cd:sessionLog"));
+      const historyEntry = {
+        startedAt: session.startedAt,
+        endedAt: Date.now(),
+        claims: sessionLog.map(({ key, ...rest }) => rest),
+      };
+      await FB.push("cd:history", historyEntry);
+      await FB.set("cd:session", null);
+      await FB.set("cd:claims", {});
+      await FB.set("cd:sessionLog", null);
+      onExit();
+    };
+
+    const undoLast = async () => {
+      const sessionLog = logObjToArray(await FB.get("cd:sessionLog"));
+      if (!sessionLog.length) return;
+      const last = sessionLog[sessionLog.length - 1];
+      // Find the code and unclaim it (host is authenticated, so a direct node write is fine)
+      const target = codes.find(x => x.value === last.code);
+      if (target) await unclaimCodeNode(target.id);
+      // Remove from claims map
+      const newClaims = { ...claims };
+      delete newClaims[last.fp];
+      await FB.set("cd:claims", newClaims);
+      // Remove just the last log entry by its push key
+      await FB.remove(`cd:sessionLog/${last.key}`);
+      // Decrement claimed count
+      await FB.set("cd:session", { ...session, claimedCount: Math.max(0, claimedThisSession - 1) });
+    };
+
+    return (
+      <div style={{ maxWidth: 460, margin: "0 auto" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20 }}>
+          <BackButton c={c} onClick={onExit} />
+          <div style={{ flex: 1 }}>
+            <div style={{ fontWeight: 700, fontSize: 22, color: "#fff", textShadow: "0 2px 4px rgba(0,0,0,0.25)", lineHeight: 1.1 }}>Code Distributor</div>
+            <div style={{ fontSize: 13, color: session.paused ? c.sun : c.strawberry, fontWeight: 600, marginTop: 2 }}>{session.paused ? "⏸ PAUSED" : "● LIVE"}</div>
+          </div>
+        </div>
+
+        <Paper c={c} accent={c.blue} style={{ textAlign: "center", marginBottom: 16, padding: "24px 20px" }}>
+          <div style={{ display: "inline-block", background: c.blueDeep, color: "#fff", padding: "6px 16px", borderRadius: 10, border: "2px solid #fff", boxShadow: `0 0 0 1.5px ${c.blueDeep}, 0 2px 0 ${c.blueDeep}`, fontSize: 13, fontWeight: 700, letterSpacing: 1.5, marginBottom: 18 }}>
+            {limitReached ? "Session limit reached" : "Scan to claim code"}
+          </div>
+          <div style={{ display: "flex", justifyContent: "center", marginBottom: 16 }}>
+            <div style={{ background: "#fff", padding: 12, borderRadius: 18, border: `3px solid ${c.paperEdge}` }}>
+              <QR data={link} size={fullscreen ? 240 : 180} />
+            </div>
+          </div>
+          <StickerBtn fill={c.paperDim} shadow={c.paperEdge} small onClick={() => setFullscreen(!fullscreen)} style={{ color: c.ink }}>
+            {fullscreen ? "⊡ Smaller" : "⛶ Bigger"}
+          </StickerBtn>
+        </Paper>
+
+        <div style={{ display: "grid", gridTemplateColumns: session.limitEnabled ? "1fr 1fr 1fr" : "1fr 1fr", gap: 10, marginBottom: 16 }}>
+          <Paper c={c} style={{ padding: "12px", textAlign: "center" }}>
+            <div style={{ fontSize: 26, fontWeight: 700, color: lowStock ? c.strawberry : c.ink, lineHeight: 1 }}>{unused.length}</div>
+            <div style={{ fontSize: 10, color: c.inkMute, letterSpacing: 1, fontWeight: 700, marginTop: 4 }}>UNUSED</div>
+          </Paper>
+          <Paper c={c} style={{ padding: "12px", textAlign: "center" }}>
+            <div style={{ fontSize: 26, fontWeight: 700, color: c.ink, lineHeight: 1 }}>{claimedList.length}</div>
+            <div style={{ fontSize: 10, color: c.inkMute, letterSpacing: 1, fontWeight: 700, marginTop: 4 }}>CLAIMED</div>
+          </Paper>
+          {session.limitEnabled && (
+            <Paper c={c} style={{ padding: "12px", textAlign: "center" }}>
+              <div style={{ fontSize: 26, fontWeight: 700, color: c.ink, lineHeight: 1 }}>{claimedThisSession}/{session.limitValue}</div>
+              <div style={{ fontSize: 10, color: c.inkMute, letterSpacing: 1, fontWeight: 700, marginTop: 4 }}>SESSION CAP</div>
+            </Paper>
+          )}
+        </div>
+
+        {lowStock && (
+          <div style={{ textAlign: "center", marginBottom: 12, padding: "8px 12px", background: "#fff", borderRadius: 12, color: c.strawDeep, fontWeight: 700, fontSize: 12, border: `2px solid ${c.strawberry}` }}>
+            ⚠ Only {unused.length} code{unused.length !== 1 ? 's' : ''} left in the pool
+          </div>
+        )}
+
+        <div style={{ display: "flex", gap: 10, marginBottom: 16 }}>
+          <StickerBtn fill={session.paused ? c.grassMid : c.sun} shadow={session.paused ? c.grassDeep : c.sunDeep} onClick={togglePause} style={{ flex: 1, color: session.paused ? "#fff" : c.ink }}>
+            {session.paused ? <><span style={{ fontSize: 14 }}>▶</span> Resume</> : <><span style={{ fontSize: 14 }}>⏸</span> Pause</>}
+          </StickerBtn>
+          <StickerBtn fill={c.strawberry} shadow={c.strawDeep} onClick={endSession} style={{ flex: 1 }}>
+            <span style={{ fontSize: 14 }}>⏹</span> End Session
+          </StickerBtn>
+        </div>
+
+        <Paper c={c}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+            <div style={{ fontWeight: 700, fontSize: 14, color: c.ink }}>Recently claimed</div>
+            {claimedThisSession > 0 && <StickerBtn fill={c.paperDim} shadow={c.paperEdge} small onClick={undoLast} style={{ color: c.ink }}><span style={{ fontSize: 12 }}>↶</span> Undo last</StickerBtn>}
+          </div>
+          {claimedList.length === 0 ? (
+            <div style={{ textAlign: "center", color: c.inkMute, fontSize: 13, padding: "10px 0" }}>Waiting for first scan…</div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 200, overflowY: "auto" }}>
+              {claimedList.slice(-15).reverse().map(x => (
+                <div key={x.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 12px", background: c.paperDim, borderRadius: 10, fontSize: 14 }}>
+                  <span style={{ fontWeight: 600, color: c.ink }}>{x.claimedBy || "—"}</span>
+                  <span style={{ fontFamily: "monospace", color: c.inkMute, fontSize: 12 }}>{x.value.length > 16 ? x.value.slice(0, 14) + "…" : x.value}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </Paper>
+      </div>
+    );
+  }
+
+  // ───────────────────────────────────────────────────────────
+  // ATTENDEE CLAIM PAGE (public, no auth)
+  // ───────────────────────────────────────────────────────────
+  function CodeClaim({ c, sessionId }) {
+    const [stage, setStage] = useState("loading");
+    const [name, setName] = useState("");
+    const [myCode, setMyCode] = useState(null);
+    const fp = fingerprint();
+
+    const check = async () => {
+      const sess = await FB.get("cd:session");
+      if (!sess || sess.id !== sessionId) return setStage("nosession");
+      if (sess.paused) return setStage("paused");
+      if (sess.limitEnabled && (sess.claimedCount || 0) >= sess.limitValue) return setStage("limitreached");
+      const claims = (await FB.get("cd:claims")) || {};
+      if (claims[fp]) {
+        const cs = codesObjToArray(await FB.get("cd:codes"));
+        const mine = cs.find(x => x.id === claims[fp]);
+        if (mine) { setMyCode(mine.value); return setStage("reveal"); }
+      }
+      setStage("name");
+    };
+
+    useEffect(() => { check(); }, []);
+
+    const claim = async () => {
+      if (!name.trim()) return;
+      const sess = await FB.get("cd:session");
+      if (!sess || sess.id !== sessionId) return setStage("nosession");
+      if (sess.paused) return setStage("paused");
+      if (sess.limitEnabled && (sess.claimedCount || 0) >= sess.limitValue) return setStage("limitreached");
+
+      const cs = codesObjToArray(await FB.get("cd:codes"));
+      const cl = (await FB.get("cd:claims")) || {};
+      if (cl[fp]) {
+        const mine = cs.find(x => x.id === cl[fp]);
+        if (mine) { setMyCode(mine.value); return setStage("reveal"); }
+      }
+      const available = cs.filter(x => !x.claimed);
+      if (!available.length) return setStage("empty");
+
+      const pick = available[Math.floor(Math.random() * available.length)];
+      // Single-node write: flips only claimed/claimedBy on this one code.
+      // Allowed for unauthenticated users by security rules.
+      await claimCodeNode(pick.id, name.trim());
+      await FB.set("cd:claims", { ...cl, [fp]: pick.id });
+      await FB.set("cd:session", { ...sess, claimedCount: (sess.claimedCount || 0) + 1 });
+
+      await FB.push("cd:sessionLog", { name: name.trim(), code: pick.value, time: Date.now(), fp });
+
+      setMyCode(pick.value);
+      setStage("reveal");
+    };
+
+    const wrap = (kids) => <div style={{ maxWidth: 400, margin: "0 auto", paddingTop: 20 }}>{kids}</div>;
+
+    if (stage === "loading") return <CenterMsg c={c} text="Loading…" />;
+
+    if (stage === "nosession") return wrap(
+      <Paper c={c} accent={c.strawberry} style={{ textAlign: "center", padding: "32px 24px" }}>
+        <IconBox emoji="✕" bg={c.strawberry + "33"} border={c.strawDeep} size={80} fontSize={36} />
+        <div style={{ height: 16 }} />
+        <Banner c={c} fill={c.strawberry}>Session not found</Banner>
+        <p style={{ marginTop: 14, color: c.inkSoft, fontSize: 14, lineHeight: 1.5 }}>This Code Drop session has ended or doesn't exist. Ask the host to start a new one.</p>
+      </Paper>
+    );
+
+    if (stage === "paused") return wrap(
+      <Paper c={c} accent={c.sun} style={{ textAlign: "center", padding: "32px 24px" }}>
+        <IconBox emoji="⏸" bg={c.sun + "33"} border={c.sunDeep} size={80} fontSize={32} />
+        <div style={{ height: 16 }} />
+        <Banner c={c} fill={c.sunDeep}>Distribution paused</Banner>
+        <p style={{ marginTop: 14, color: c.inkSoft, fontSize: 14, lineHeight: 1.5 }}>The host has paused drops. Check back in a moment!</p>
+        <div style={{ marginTop: 20 }}><StickerBtn fill={c.blue} shadow={c.blueDeep} onClick={check}>Check again</StickerBtn></div>
+      </Paper>
+    );
+
+    if (stage === "limitreached") return wrap(
+      <Paper c={c} accent={c.purple} style={{ textAlign: "center", padding: "32px 24px" }}>
+        <IconBox emoji="🏁" bg={c.purple + "33"} border={c.purpleDeep} size={80} fontSize={32} />
+        <div style={{ height: 16 }} />
+        <Banner c={c} fill={c.purpleDeep}>Session full</Banner>
+        <p style={{ marginTop: 14, color: c.inkSoft, fontSize: 14, lineHeight: 1.5 }}>This session has given out its full allotment of codes. Thanks for playing!</p>
+      </Paper>
+    );
+
+    if (stage === "empty") return wrap(
+      <Paper c={c} accent={c.strawberry} style={{ textAlign: "center", padding: "32px 24px" }}>
+        <IconBox emoji="🎫" bg={c.strawberry + "33"} border={c.strawDeep} size={80} fontSize={36} />
+        <div style={{ height: 16 }} />
+        <Banner c={c} fill={c.strawberry}>Stash is empty!</Banner>
+        <p style={{ marginTop: 14, color: c.inkSoft, fontSize: 14, lineHeight: 1.5 }}>All codes for this session have been claimed.</p>
+        <div style={{ marginTop: 20 }}><StickerBtn fill={c.blue} shadow={c.blueDeep} onClick={check}>Check again</StickerBtn></div>
+      </Paper>
+    );
+
+    if (stage === "name") return wrap(
+      <Paper c={c} accent={c.blue} style={{ textAlign: "center", padding: "28px 22px" }}>
+        <Banner c={c} fill={c.blueDeep} style={{ marginBottom: 18 }}>Trainer Reward</Banner>
+        <div style={{ marginBottom: 14, display: "flex", justifyContent: "center" }}>
+          <IconBox emoji="🎁" bg={c.sun + "33"} border={c.sunDeep} size={80} fontSize={38} />
+        </div>
+        <h2 style={{ fontFamily: "Fredoka, sans-serif", fontSize: 20, fontWeight: 700, color: c.ink, marginBottom: 6 }}>What's your trainer name?</h2>
+        <p style={{ color: c.inkSoft, fontSize: 13, marginBottom: 18 }}>Your name will be recorded with your claimed code.</p>
+        <input value={name} onChange={e => setName(e.target.value)} onKeyDown={e => e.key === "Enter" && claim()} placeholder="Ash Ketchum..." style={{ textAlign: "center", fontSize: 17, marginBottom: 18 }} maxLength={32} />
+        <StickerBtn fill={c.grassMid} shadow={c.grassDeep} disabled={!name.trim()} onClick={claim} style={{ width: "100%", fontSize: 16, padding: 14 }}>
+          Claim my code
+        </StickerBtn>
+      </Paper>
+    );
+
+    if (stage === "reveal") return wrap(
+      <Paper c={c} accent={c.grassMid} style={{ textAlign: "center", padding: "28px 22px" }}>
+        <Banner c={c} fill={c.grassDeep} style={{ marginBottom: 16 }}>Your code is ready!</Banner>
+        <div style={{ marginBottom: 16, display: "flex", justifyContent: "center" }}>
+          <IconBox emoji="🎫" bg={c.sun + "33"} border={c.sunDeep} size={72} fontSize={34} />
+        </div>
+        <div style={{ background: c.paperDim, borderRadius: 18, padding: "18px 16px", marginBottom: 10, border: `2.5px dashed ${c.paperEdge}` }}>
+          <div style={{ fontSize: 11, letterSpacing: 2, color: c.inkMute, fontWeight: 600, marginBottom: 8 }}>YOUR CODE</div>
+          <div style={{ fontFamily: "monospace", fontSize: 22, fontWeight: 700, color: c.ink, letterSpacing: 2, wordBreak: "break-all", lineHeight: 1.3 }}>{myCode}</div>
+        </div>
+        <div style={{ fontSize: 11, color: c.inkMute, marginBottom: 18 }}>Having trouble scanning? Type the code above manually.</div>
+
+        <a href={`https://store.pokemongo.com/offer-redemption?passcode=${encodeURIComponent(myCode)}`} target="_blank" rel="noopener noreferrer" style={{ textDecoration: "none", display: "block", marginBottom: 12 }}>
+          <StickerBtn fill={c.grassMid} shadow={c.grassDeep} style={{ width: "100%", fontSize: 17, padding: "16px" }}>↗ REDEEM NOW</StickerBtn>
+        </a>
+        <p style={{ fontSize: 12, color: c.inkMute, marginBottom: 16 }}>Opens Pokémon GO store in a new tab.</p>
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 18 }}>
+          <StickerBtn fill={c.blue} shadow={c.blueDeep} small onClick={() => navigator.clipboard.writeText(myCode)}>Copy</StickerBtn>
+          <StickerBtn fill={c.purple} shadow={c.purpleDeep} small onClick={() => { if (navigator.share) navigator.share({ title: "Pokémon GO code", text: myCode }); }}>Share</StickerBtn>
+        </div>
+
+        <div style={{ background: c.paperDim, borderRadius: 14, padding: "12px 14px", textAlign: "left" }}>
+          <div style={{ fontSize: 11, color: c.orangeDeep, fontWeight: 700, letterSpacing: 1.5, marginBottom: 4 }}>PRO TIP</div>
+          <p style={{ fontSize: 12, color: c.inkSoft, lineHeight: 1.5 }}>Redeem quickly! Accounts are often restricted to 1 code per week. If the store says "don't qualify," your account may be on cooldown.</p>
+        </div>
+      </Paper>
+    );
+
+    return null;
+  }
+
+  function Banner({ children, fill, c, style = {} }) {
+    return (
+      <div style={{
+        display: "inline-block", background: fill, color: "#fff", padding: "8px 22px", borderRadius: 12,
+        border: "3px solid #fff", boxShadow: `0 0 0 2px ${fill}, 0 4px 0 ${fill}, 0 8px 12px rgba(13, 45, 82, 0.18)`,
+        fontFamily: "Fredoka, sans-serif", fontWeight: 700, fontSize: 18, letterSpacing: 1,
+        textTransform: "uppercase", ...style,
+      }}>{children}</div>
+    );
+  }
+
+  // ───────────────────────────────────────────────────────────
+  // BRANDING SETTINGS (host only)
+  // ───────────────────────────────────────────────────────────
+  function BrandingSettings({ c, setView }) {
+    const [draft, setDraft] = useState(c);
+    const [saved, setSaved] = useState(false);
+
+    useEffect(() => { setDraft(c); }, [c.bgImage, c.logoImage, c.blue, c.strawberry, c.orange, c.purple, c.sun, c.grassMid]);
+
+    const field = (key, label, type = "color") => (
+      <div style={{ marginBottom: 12 }}>
+        <div style={{ fontSize: 12, fontWeight: 700, color: c.inkSoft, marginBottom: 4 }}>{label}</div>
+        {type === "color" ? (
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <input type="color" value={draft[key]} onChange={e => setDraft({ ...draft, [key]: e.target.value })} style={{ width: 50, height: 40, padding: 2, cursor: "pointer" }} />
+            <input value={draft[key]} onChange={e => setDraft({ ...draft, [key]: e.target.value })} style={{ flex: 1 }} />
+          </div>
+        ) : (
+          <input value={draft[key]} onChange={e => setDraft({ ...draft, [key]: e.target.value })} placeholder="https://..." />
+        )}
+      </div>
+    );
+
+    const save = async () => {
+      await FB.set("settings:branding", draft);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2500);
+    };
+
+    const reset = async () => {
+      if (!confirm("Reset all branding to defaults?")) return;
+      await FB.set("settings:branding", DEFAULT_BRAND);
+      setDraft(DEFAULT_BRAND);
+    };
+
+    return (
+      <div style={{ maxWidth: 460, margin: "0 auto" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20 }}>
+          <BackButton c={c} onClick={() => setView("home")} />
+          <div style={{ flex: 1 }}>
+            <div style={{ fontWeight: 700, fontSize: 22, color: "#fff", textShadow: "0 2px 4px rgba(0,0,0,0.25)", lineHeight: 1.1 }}>Branding</div>
+            <div style={{ fontSize: 13, color: c.sun, fontWeight: 600, marginTop: 2 }}>Customize the look</div>
+          </div>
+        </div>
+
+        <Paper c={c} accent={c.sun} style={{ marginBottom: 14 }}>
+          <div style={{ fontWeight: 700, fontSize: 15, color: c.ink, marginBottom: 12 }}>Images (URL)</div>
+          {field("logoImage", "Logo image URL (replaces 'GARDEN GROVE' text)", "text")}
+          {field("bgImage", "Background image URL (optional)", "text")}
+          <p style={{ fontSize: 11, color: c.inkMute, lineHeight: 1.5, marginTop: 4 }}>
+            Paste a direct link to an image (ending in .png, .jpg, etc). Host images on a free service like GitHub, Imgur, or your own site.
+          </p>
+        </Paper>
+
+        <Paper c={c} accent={c.blue} style={{ marginBottom: 14 }}>
+          <div style={{ fontWeight: 700, fontSize: 15, color: c.ink, marginBottom: 12 }}>Colors</div>
+          {field("blue", "Code Drop accent")}
+          {field("strawberry", "Giveaway accent")}
+          {field("orange", "Start Session button")}
+          {field("purple", "Branding / manage accent")}
+          {field("sun", "Highlight / warning")}
+          {field("grassMid", "Page background")}
+        </Paper>
+
+        <div style={{ display: "flex", gap: 10 }}>
+          <StickerBtn fill={c.grassMid} shadow={c.grassDeep} onClick={save} style={{ flex: 1, padding: 14 }}>
+            {saved ? "✓ Saved!" : "Save changes"}
+          </StickerBtn>
+          <StickerBtn fill={c.paperDim} shadow={c.paperEdge} onClick={reset} style={{ color: c.ink }}>Reset</StickerBtn>
+        </div>
+      </div>
+    );
+  }
+
+  // ───────────────────────────────────────────────────────────
+  // GIVEAWAY PLACEHOLDER
+  // ───────────────────────────────────────────────────────────
+  function GiveawayApp({ setView, c }) {
+    return (
+      <div style={{ maxWidth: 460, margin: "0 auto" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20 }}>
+          <BackButton c={c} onClick={() => setView("home")} />
+          <div style={{ flex: 1 }}>
+            <div style={{ fontWeight: 700, fontSize: 22, color: "#fff", textShadow: "0 2px 4px rgba(0,0,0,0.25)", lineHeight: 1.1 }}>Giveaway</div>
+            <div style={{ fontSize: 13, color: "#fff", opacity: 0.8, fontWeight: 600, marginTop: 2 }}>Coming soon</div>
+          </div>
+        </div>
+        <Paper c={c} style={{ textAlign: "center", padding: "48px 20px", color: c.inkMute }}>
+          <div style={{ fontSize: 16, fontWeight: 600, color: c.ink }}>Giveaway feature coming in v2</div>
+          <p style={{ fontSize: 13, marginTop: 8, lineHeight: 1.5 }}>Code Drop is live and ready to use. Giveaway will arrive in the next update.</p>
+        </Paper>
+      </div>
+    );
+  }
+
+  // ───────────────────────────────────────────────────────────
+  // APP ROOT
+  // ───────────────────────────────────────────────────────────
+  function App() {
+    const c = useBrand();
+    const [view, setView] = useState("home");
+    const [user, setUser] = useState(undefined); // undefined = checking, null = logged out
+    const [claimSession, setClaimSession] = useState(null);
+
+    useEffect(() => {
+      const params = new URLSearchParams(window.location.search);
+      const claimId = params.get("cd_claim");
+      if (claimId) { setClaimSession(claimId); return; }
+      const unsub = auth.onAuthStateChanged(u => setUser(u));
+      return unsub;
+    }, []);
+
+    const pageStyle = {
+      minHeight: "100vh", position: "relative", padding: "24px 16px 60px",
+      background: c.bgImage ? `url(${c.bgImage}) center/cover no-repeat` : c.grassMid,
+      fontFamily: "Fredoka, sans-serif",
+    };
+
+    // Public attendee claim flow — always accessible, no auth needed
+    if (claimSession) {
+      return <div style={pageStyle}><CodeClaim c={c} sessionId={claimSession} /></div>;
+    }
+
+    // Auth check in progress
+    if (user === undefined) {
+      return <div style={pageStyle}><CenterMsg c={c} text="Loading…" /></div>;
+    }
+
+    // Views that require host login
+    const hostOnlyViews = ["codedrop", "branding"];
+    if (hostOnlyViews.includes(view) && !user) {
+      return (
+        <div style={pageStyle}>
+          <div style={{ maxWidth: 460, margin: "0 auto", marginBottom: 12 }}>
+            <BackButton c={c} onClick={() => setView("home")} />
+          </div>
+          <HostLogin c={c} onSuccess={() => {}} />
+        </div>
+      );
+    }
+
+    return (
+      <div style={pageStyle}>
+        {view === "home" && <Home setView={setView} c={c} user={user} />}
+        {view === "codedrop" && <CodeDropApp setView={setView} c={c} />}
+        {view === "giveaway" && <GiveawayApp setView={setView} c={c} />}
+        {view === "branding" && <BrandingSettings c={c} setView={setView} />}
+      </div>
+    );
+  }
+
+  const root = ReactDOM.createRoot(document.getElementById('ggpogo-event-tools-root'));
+  root.render(<App />);
+})();
+</script>

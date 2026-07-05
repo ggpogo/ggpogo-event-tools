@@ -1,0 +1,413 @@
+<!-- ============================================================
+     GGPoGo Homepage — Sections Below Hero
+     Paste into a single Custom HTML block after the Cover block.
+     Version: homepage-b-sections-v3
+     Changes:
+       v1 — Initial build (activity strip, story card, duo cards)
+       v2 — Hover fix, Campfire CTA, Google Calendar integration
+       v3 — Removed Free/Giveaways tags, corrected Campfire link
+     ============================================================ -->
+
+<style>
+  .gg-home-wrap {
+    max-width: 800px;
+    margin: 0 auto;
+    padding: 2rem 1rem 0;
+    font-family: 'Nunito', sans-serif;
+  }
+
+  /* --- ACTIVITY STRIP --- */
+  .gg-activity-strip {
+    display: flex;
+    gap: 14px;
+    overflow-x: auto;
+    overflow-y: visible;
+    padding: 8px 2px 12px;
+    margin-bottom: 1.5rem;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .gg-activity-strip::-webkit-scrollbar { display: none; }
+
+  .gg-activity-card {
+    min-width: 160px;
+    flex: 1;
+    background: #fff;
+    border: 1.5px solid #E8DEC0;
+    border-radius: 16px;
+    padding: 1.4rem 1rem;
+    text-align: center;
+    transition: transform 0.2s, box-shadow 0.2s, border-color 0.2s;
+  }
+  .gg-activity-card:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 8px 24px rgba(13, 45, 82, 0.1);
+    border-color: #1FA5DC;
+  }
+
+  .gg-activity-icon {
+    width: 48px;
+    height: 48px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0 auto 10px;
+    font-size: 24px;
+  }
+
+  .gg-activity-card h3 {
+    font-family: 'Fredoka', sans-serif;
+    font-size: 1rem;
+    font-weight: 500;
+    color: #0D2D52;
+    margin: 0 0 4px;
+  }
+
+  .gg-activity-card p {
+    font-size: 13px;
+    color: #7A8FA8;
+    margin: 0;
+    line-height: 1.3;
+  }
+
+  /* --- STORY CARD --- */
+  .gg-story-card {
+    background: #fff;
+    border: 1.5px solid #E8DEC0;
+    border-radius: 16px;
+    padding: 1.75rem;
+    display: flex;
+    gap: 1.5rem;
+    align-items: center;
+    margin-bottom: 1.5rem;
+  }
+
+  .gg-story-icon {
+    min-width: 88px;
+    height: 88px;
+    border-radius: 14px;
+    background: linear-gradient(135deg, #E6F1FB, #FFFCF2);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .gg-story-icon svg {
+    width: 40px;
+    height: 40px;
+  }
+
+  .gg-story-card h3 {
+    font-family: 'Fredoka', sans-serif;
+    font-size: 1.15rem;
+    font-weight: 500;
+    color: #0D2D52;
+    margin: 0 0 6px;
+  }
+
+  .gg-story-card > div > p {
+    font-size: 14px;
+    color: #7A8FA8;
+    line-height: 1.6;
+    margin: 0 0 10px;
+  }
+
+  .gg-story-link {
+    font-size: 14px;
+    font-weight: 600;
+    color: #1FA5DC;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .gg-story-link:hover {
+    color: #0E5C9E;
+  }
+
+  /* --- DUO CARDS --- */
+  .gg-duo-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+    margin-bottom: 2.5rem;
+  }
+
+  .gg-event-card {
+    background: linear-gradient(135deg, rgba(31, 165, 220, 0.08), rgba(125, 194, 92, 0.06));
+    border: 1.5px solid rgba(31, 165, 220, 0.2);
+    border-radius: 16px;
+    padding: 1.5rem;
+  }
+
+  .gg-event-eyebrow {
+    font-size: 11px;
+    color: #1FA5DC;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    font-weight: 700;
+    margin-bottom: 10px;
+    font-family: 'Nunito', sans-serif;
+  }
+
+  .gg-event-card h3 {
+    font-family: 'Fredoka', sans-serif;
+    font-size: 1.2rem;
+    font-weight: 500;
+    color: #0D2D52;
+    margin: 0 0 4px;
+  }
+
+  .gg-event-card p {
+    font-size: 13px;
+    color: #7A8FA8;
+    margin: 0;
+    line-height: 1.5;
+  }
+
+  .gg-event-link {
+    display: inline-block;
+    margin-top: 14px;
+    font-size: 13px;
+    font-weight: 600;
+    color: #1FA5DC;
+    text-decoration: none;
+  }
+  .gg-event-link:hover { color: #0E5C9E; }
+
+  .gg-cta-card {
+    background: linear-gradient(135deg, rgba(125, 194, 92, 0.12), rgba(31, 165, 220, 0.08));
+    border: 1.5px solid rgba(125, 194, 92, 0.25);
+    border-radius: 16px;
+    padding: 1.5rem;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+  }
+
+  .gg-cta-card h3 {
+    font-family: 'Fredoka', sans-serif;
+    font-size: 1.2rem;
+    font-weight: 500;
+    color: #0D2D52;
+    margin: 0 0 4px;
+  }
+
+  .gg-cta-card p {
+    font-size: 13px;
+    color: #7A8FA8;
+    margin: 0 0 16px;
+  }
+
+  .gg-cta-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: #F08838;
+    color: #fff;
+    font-family: 'Fredoka', sans-serif;
+    font-size: 14px;
+    font-weight: 500;
+    padding: 0.6em 1.5em;
+    border-radius: 50px;
+    text-decoration: none;
+    transition: transform 0.15s, box-shadow 0.15s;
+  }
+  .gg-cta-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(240, 136, 56, 0.3);
+    color: #fff;
+  }
+
+  .gg-cta-btn svg {
+    width: 18px;
+    height: 18px;
+  }
+
+  /* --- MOBILE --- */
+  @media (max-width: 600px) {
+    .gg-home-wrap {
+      padding: 1.25rem 0.75rem 0;
+    }
+    .gg-activity-card {
+      min-width: 140px;
+    }
+    .gg-story-card {
+      flex-direction: column;
+      text-align: center;
+    }
+    .gg-story-icon {
+      min-width: 72px;
+      height: 72px;
+    }
+    .gg-duo-row {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
+
+<div class="gg-home-wrap">
+
+  <!-- ===== ACTIVITY STRIP ===== -->
+  <div class="gg-activity-strip">
+
+    <div class="gg-activity-card">
+      <div class="gg-activity-icon" style="background: rgba(31, 165, 220, 0.1);">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#1FA5DC" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 3v5l-11 11-4-4L17 4h4"/><path d="M5 13l4 4-5 5-3-3 4-6"/><path d="M16.5 7.5L19 10"/></svg>
+      </div>
+      <h3>Raid hours</h3>
+      <p>Every Wednesday</p>
+    </div>
+
+    <div class="gg-activity-card">
+      <div class="gg-activity-icon" style="background: rgba(240, 136, 56, 0.1);">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#F08838" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="8" width="18" height="4" rx="1"/><path d="M12 8v13"/><path d="M3 12v7a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M7.5 8a2.5 2.5 0 010-5C9 3 12 8 12 8s3-5 4.5-5a2.5 2.5 0 010 5"/></svg>
+      </div>
+      <h3>Giveaways</h3>
+      <p>Every meetup</p>
+    </div>
+
+    <div class="gg-activity-card">
+      <div class="gg-activity-icon" style="background: rgba(125, 194, 92, 0.12);">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#7DC25C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4"/><path d="M8 2v4"/><path d="M3 10h18"/><path d="M8 14h.01"/><path d="M12 14h.01"/><path d="M16 14h.01"/><path d="M8 18h.01"/><path d="M12 18h.01"/></svg>
+      </div>
+      <h3>Community days</h3>
+      <p>Monthly</p>
+    </div>
+
+    <div class="gg-activity-card">
+      <div class="gg-activity-icon" style="background: rgba(245, 200, 66, 0.12);">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#C49B10" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 10L3 14l4 4"/><path d="M21 14H3"/><path d="M17 14l4-4-4-4"/><path d="M3 10h18"/></svg>
+      </div>
+      <h3>Trading</h3>
+      <p>Always open</p>
+    </div>
+
+  </div>
+
+  <!-- ===== STORY CARD ===== -->
+  <div class="gg-story-card">
+    <div class="gg-story-icon">
+      <svg viewBox="0 0 24 24" fill="none" stroke="#1FA5DC" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M19.5 12.572l-7.5 7.428-7.5-7.428A5 5 0 1112 6.006a5 5 0 117.5 6.572"/></svg>
+    </div>
+    <div>
+      <h3>Built by trainers, for trainers</h3>
+      <p>What started as one player looking for raid partners in Garden Grove has become the city's biggest Pokemon GO community. We're volunteer-run, family-friendly, and always welcoming new members.</p>
+      <a href="/about/" class="gg-story-link">
+        Read our story
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M13 6l6 6-6 6"/></svg>
+      </a>
+    </div>
+  </div>
+
+  <!-- ===== DUO CARDS ===== -->
+  <div class="gg-duo-row">
+
+    <!-- Next Event (populated by JavaScript) -->
+    <div class="gg-event-card" id="gg-next-event">
+      <div class="gg-event-eyebrow">Next event</div>
+      <h3 id="gg-evt-title">Weekly raid hour</h3>
+      <p id="gg-evt-datetime">Every Wednesday at 6:00 PM</p>
+      <p id="gg-evt-location" style="margin-top: 2px;">Atlantis Play Center area</p>
+      <a href="/events/" class="gg-event-link">
+        All events &rarr;
+      </a>
+    </div>
+
+    <!-- CTA — Campfire -->
+    <div class="gg-cta-card">
+      <h3>Find us on Campfire</h3>
+      <p>See routes, flares, and local events</p>
+      <a href="https://campfire.onelink.me/eBr8?af_dp=campfire://&amp;af_force_deeplink=true&amp;deep_link_sub1=cj1jbHVicyZjPTM3NzgzYzEyLWYzNWYtNDg4Yy04ZmQxLTM2ZWEyYjJlNGE0ZCZpPXRydWU=" class="gg-cta-btn" target="_blank" rel="noopener">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 23c-3.866 0-7-3.134-7-7 0-3.527 3.397-7.39 5.068-9.043a2.5 2.5 0 013.864 0C15.603 8.61 19 12.473 19 16c0 3.866-3.134 7-7 7zm0-2a5 5 0 005-5c0-2.57-2.61-5.7-4.174-7.296a1 1 0 00-1.652 0C9.61 10.3 7 13.43 7 16a5 5 0 005 5zm0-2a2 2 0 01-2-2c0-.87.643-1.903 1.295-2.654a.5.5 0 01.71 0C12.657 15.097 14 16.13 14 17a2 2 0 01-2 2z"/></svg>
+        Open Campfire
+      </a>
+    </div>
+
+  </div>
+
+</div>
+
+<!-- ===== GOOGLE CALENDAR INTEGRATION ===== -->
+<script>
+(function() {
+  // =====================================================
+  // CONFIGURATION — Update these two values:
+  // =====================================================
+  var CALENDAR_ID = 'YOUR_CALENDAR_ID_HERE';  // e.g. 'abc123@group.calendar.google.com'
+  var API_KEY     = 'YOUR_API_KEY_HERE';       // from Google Cloud Console
+
+  // Don't run if placeholders haven't been filled in
+  if (CALENDAR_ID === 'YOUR_CALENDAR_ID_HERE') return;
+  if (API_KEY === 'YOUR_API_KEY_HERE') return;
+
+  var now = new Date().toISOString();
+  var url = 'https://www.googleapis.com/calendar/v3/calendars/'
+    + encodeURIComponent(CALENDAR_ID)
+    + '/events?key=' + API_KEY
+    + '&timeMin=' + encodeURIComponent(now)
+    + '&maxResults=1'
+    + '&singleEvents=true'
+    + '&orderBy=startTime';
+
+  fetch(url)
+    .then(function(res) { return res.json(); })
+    .then(function(data) {
+      if (!data.items) return;
+      var items = data.items;
+      if (items.length === 0) return;
+
+      var evt = items[0];
+      var title = evt.summary || 'Upcoming event';
+      var location = evt.location || '';
+
+      // Parse start date/time
+      var startRaw = evt.start.dateTime || evt.start.date;
+      var startDate = new Date(startRaw);
+
+      // Format: "Wednesday, Jun 25 at 6:00 PM"
+      var days = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+      var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+      var dayName = days[startDate.getDay()];
+      var monthName = months[startDate.getMonth()];
+      var dayNum = startDate.getDate();
+
+      var dateStr = dayName + ', ' + monthName + ' ' + dayNum;
+
+      // Add time if it's a dateTime (not all-day)
+      if (evt.start.dateTime) {
+        var hours = startDate.getHours();
+        var minutes = startDate.getMinutes();
+        var ampm = hours >= 12 ? 'PM' : 'AM';
+        hours = hours % 12;
+        if (hours === 0) hours = 12;
+        var minStr = minutes < 10 ? '0' + minutes : '' + minutes;
+        var timeStr = hours + ':' + minStr + ' ' + ampm;
+        dateStr = dateStr + ' at ' + timeStr;
+      }
+
+      // Update the card
+      var titleEl = document.getElementById('gg-evt-title');
+      var dateEl  = document.getElementById('gg-evt-datetime');
+      var locEl   = document.getElementById('gg-evt-location');
+
+      if (titleEl) titleEl.textContent = title;
+      if (dateEl)  dateEl.textContent  = dateStr;
+      if (locEl) {
+        if (location) {
+          locEl.textContent = location;
+          locEl.style.display = '';
+        } else {
+          locEl.style.display = 'none';
+        }
+      }
+    })
+    .catch(function(err) {
+      // Silently fail — fallback static content stays visible
+      console.log('GGPoGo calendar fetch skipped:', err);
+    });
+})();
+</script>

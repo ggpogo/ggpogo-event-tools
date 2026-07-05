@@ -1,0 +1,551 @@
+/* ============================================================
+   GGPoGo.com — Site-Wide Stylesheet
+   Version: 1.1.0
+   Last updated: 2026-06-25
+
+   Changelog:
+     1.0.0 — Initial design system (Fredoka/Nunito, brand colors,
+              page styles for Home, About, Resources, Contact)
+     1.1.0 — Homepage Concept B (hero gradient, inline stats,
+              page-title hide for homepage)
+
+   Stack: Astra theme + WordPress block editor
+   Fonts: Fredoka (headings) · Nunito (body)
+   Palette: Blue #1FA5DC · Green #7DC25C · Orange #F08838
+            Sun #F5C842 · Paper #FFFCF2 · Ink #0D2D52
+   ============================================================ */
+
+
+/* ===================
+   1. FONTS
+   =================== */
+@import url('https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&family=Nunito:wght@400;500;600;700&display=swap');
+
+
+/* ===================
+   2. CSS VARIABLES
+   =================== */
+:root {
+  --gg-blue:        #1FA5DC;
+  --gg-blue-deep:   #0E5C9E;
+  --gg-green:       #7DC25C;
+  --gg-green-deep:  #3F8A36;
+  --gg-orange:      #F08838;
+  --gg-orange-deep: #C45A1F;
+  --gg-sun:         #F5C842;
+  --gg-paper:       #FFFCF2;
+  --gg-paper-dim:   #F5EFDC;
+  --gg-paper-edge:  #E8DEC0;
+  --gg-ink:         #0D2D52;
+  --gg-ink-soft:    #3D5B82;
+  --gg-ink-mute:    #7A8FA8;
+  --gg-radius:      16px;
+  --gg-radius-sm:   10px;
+  --gg-radius-pill: 50px;
+}
+
+
+/* ===================
+   3. GLOBAL TYPOGRAPHY
+   =================== */
+body,
+.ast-single-post .entry-content,
+p, li, td {
+  font-family: 'Nunito', sans-serif;
+  color: var(--gg-ink-soft);
+}
+
+h1, h2, h3, h4, h5, h6,
+.entry-title,
+.wp-block-heading,
+.site-title,
+.ast-site-name-wrap {
+  font-family: 'Fredoka', 'Nunito', sans-serif !important;
+  font-weight: 500;
+  color: var(--gg-ink);
+  letter-spacing: 0.01em;
+}
+
+
+/* ===================
+   4. PAGE BACKGROUND
+   =================== */
+body,
+#page,
+.site-content,
+.ast-page-builder-template,
+.entry-content {
+  background-color: var(--gg-paper) !important;
+}
+
+
+/* ===================
+   5. HEADER
+   =================== */
+.site-header,
+#masthead,
+.ast-header-break-point .site-header {
+  background-color: #fff !important;
+  border-bottom: 2px solid var(--gg-paper-edge) !important;
+  box-shadow: 0 2px 12px rgba(13, 45, 82, 0.06) !important;
+}
+
+.main-header-menu .menu-item > a,
+.ast-header-break-point .main-header-menu .menu-item > a {
+  font-family: 'Fredoka', sans-serif !important;
+  font-weight: 500 !important;
+  font-size: 16px !important;
+  color: var(--gg-ink) !important;
+  letter-spacing: 0.02em;
+}
+
+.main-header-menu .current-menu-item > a,
+.main-header-menu .menu-item > a:hover {
+  color: var(--gg-blue) !important;
+}
+
+
+/* ===================
+   6. COVER BLOCKS (general)
+   =================== */
+.wp-block-cover {
+  border-radius: 0 0 var(--gg-radius) var(--gg-radius);
+  overflow: hidden;
+}
+
+.wp-block-cover__inner-container {
+  text-align: center !important;
+  display: flex;
+  flex-direction: column;
+  align-items: center !important;
+  justify-content: center !important;
+}
+
+.wp-block-cover h1,
+.wp-block-cover h2,
+.wp-block-cover p {
+  text-align: center !important;
+}
+
+
+/* ===================
+   7. BUTTONS
+   =================== */
+.wp-block-button__link,
+.wp-block-buttons .wp-block-button__link {
+  font-family: 'Fredoka', sans-serif !important;
+  font-weight: 500 !important;
+  font-size: 16px !important;
+  border-radius: var(--gg-radius-pill) !important;
+  padding: 0.55em 1.6em !important;
+  letter-spacing: 0.02em;
+  transition: transform 0.15s, box-shadow 0.15s !important;
+}
+
+.wp-block-button__link:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(13, 45, 82, 0.15) !important;
+}
+
+
+/* ===================
+   8. STAT CARDS
+   Add CSS class "gg-stats-row" to a Columns block
+   =================== */
+.gg-stats-row {
+  background: transparent !important;
+  gap: 16px !important;
+}
+
+.gg-stats-row .wp-block-column {
+  background: #fff !important;
+  border: 2px solid var(--gg-paper-edge) !important;
+  border-radius: var(--gg-radius) !important;
+  padding: 1.5rem !important;
+  text-align: center !important;
+  box-shadow: 0 2px 8px rgba(13, 45, 82, 0.06);
+}
+
+.gg-stats-row .wp-block-column h2,
+.gg-stats-row .wp-block-column h3 {
+  font-family: 'Fredoka', sans-serif !important;
+  font-size: 2rem !important;
+  font-weight: 600 !important;
+  color: var(--gg-blue) !important;
+  margin-bottom: 0.25rem !important;
+  line-height: 1.1;
+}
+
+.gg-stats-row .wp-block-column p {
+  font-size: 13px !important;
+  color: var(--gg-ink-mute) !important;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+  margin: 0 !important;
+}
+
+
+/* ===================
+   9. FEATURE CARDS
+   Add CSS class "gg-feature-card" to Column blocks
+   =================== */
+.gg-feature-card {
+  background: #fff !important;
+  border: 2px solid var(--gg-paper-edge) !important;
+  border-radius: var(--gg-radius) !important;
+  padding: 1.5rem !important;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.gg-feature-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 10px 28px rgba(13, 45, 82, 0.1) !important;
+  border-color: var(--gg-blue) !important;
+}
+
+.gg-feature-card h3 {
+  font-family: 'Fredoka', sans-serif !important;
+  font-size: 1.3rem !important;
+  color: var(--gg-ink) !important;
+  margin-bottom: 0.4rem !important;
+}
+
+.gg-feature-card p {
+  font-size: 14px !important;
+  color: var(--gg-ink-mute) !important;
+  line-height: 1.6 !important;
+}
+
+.gg-feature-card a {
+  color: var(--gg-blue) !important;
+  font-weight: 600;
+  font-size: 14px;
+  text-decoration: none !important;
+}
+
+.gg-feature-card a:hover {
+  color: var(--gg-blue-deep) !important;
+}
+
+
+/* ===================
+   10. SECTION ACCENT BACKGROUNDS
+   Add to Group blocks as needed
+   =================== */
+.gg-section-green {
+  background: linear-gradient(135deg,
+    rgba(125, 194, 92, 0.12) 0%,
+    rgba(31, 165, 220, 0.08) 100%) !important;
+  border-radius: var(--gg-radius) !important;
+  padding: 2.5rem 2rem !important;
+  border: 1.5px solid rgba(125, 194, 92, 0.25) !important;
+}
+
+.gg-section-blue {
+  background: linear-gradient(135deg,
+    rgba(31, 165, 220, 0.1) 0%,
+    rgba(14, 92, 158, 0.06) 100%) !important;
+  border-radius: var(--gg-radius) !important;
+  padding: 2.5rem 2rem !important;
+  border: 1.5px solid rgba(31, 165, 220, 0.2) !important;
+}
+
+.gg-paper-card {
+  background: #fff !important;
+  border: 2px solid var(--gg-paper-edge) !important;
+  border-radius: var(--gg-radius) !important;
+  padding: 2rem !important;
+  box-shadow: 0 2px 12px rgba(13, 45, 82, 0.06);
+}
+
+
+/* ===================
+   11. RESOURCES PAGE
+   Add class "gg-resource-section" to Group blocks
+   =================== */
+.gg-resource-section {
+  background: #fff !important;
+  border: 2px solid var(--gg-paper-edge) !important;
+  border-radius: var(--gg-radius) !important;
+  padding: 1.5rem 1.75rem !important;
+  margin-bottom: 1rem !important;
+  border-left: 5px solid var(--gg-blue) !important;
+  border-top-left-radius: var(--gg-radius-sm) !important;
+  border-bottom-left-radius: var(--gg-radius-sm) !important;
+}
+
+.gg-resource-section h2 {
+  font-family: 'Fredoka', sans-serif !important;
+  font-size: 1.3rem !important;
+  color: var(--gg-ink) !important;
+  margin-bottom: 0.75rem !important;
+}
+
+.gg-resource-section ul {
+  margin: 0 !important;
+  padding-left: 1rem !important;
+}
+
+.gg-resource-section li {
+  padding: 4px 0;
+  color: var(--gg-ink-soft) !important;
+  font-size: 15px !important;
+}
+
+.gg-resource-section li a {
+  color: var(--gg-blue) !important;
+  font-weight: 600;
+  text-decoration: none !important;
+}
+
+.gg-resource-section li a:hover {
+  color: var(--gg-blue-deep) !important;
+  text-decoration: underline !important;
+}
+
+.gg-resource-official { border-left-color: var(--gg-green) !important; }
+.gg-resource-raids    { border-left-color: var(--gg-blue) !important; }
+.gg-resource-community { border-left-color: var(--gg-orange) !important; }
+.gg-resource-tip {
+  background: linear-gradient(135deg,
+    rgba(31,165,220,0.08), rgba(125,194,92,0.06)) !important;
+  border-left-color: var(--gg-sun) !important;
+  border-left-width: 5px !important;
+}
+
+
+/* ===================
+   12. ABOUT PAGE
+   =================== */
+.gg-ambassador-card {
+  background: #fff !important;
+  border: 2px solid var(--gg-paper-edge) !important;
+  border-radius: var(--gg-radius) !important;
+  padding: 1.5rem !important;
+  text-align: center !important;
+}
+
+.gg-ambassador-card img {
+  border-radius: var(--gg-radius) !important;
+  width: 100% !important;
+  object-fit: cover !important;
+  aspect-ratio: 1 / 1 !important;
+  margin-bottom: 1rem !important;
+}
+
+.gg-what-we-do .wp-block-column {
+  background: #fff !important;
+  border: 2px solid var(--gg-paper-edge) !important;
+  border-radius: var(--gg-radius) !important;
+  padding: 1.25rem !important;
+}
+
+.gg-what-we-do .wp-block-column h3 {
+  color: var(--gg-blue) !important;
+}
+
+
+/* ===================
+   13. CONTACT PAGE
+   =================== */
+.gg-social-section {
+  border-radius: var(--gg-radius) !important;
+  overflow: hidden !important;
+}
+
+
+/* ===================
+   14. FOOTER
+   =================== */
+.site-footer,
+.footer-widget-area,
+.ast-small-footer {
+  background-color: var(--gg-ink) !important;
+  color: rgba(255,255,255,0.6) !important;
+  font-family: 'Nunito', sans-serif !important;
+}
+
+.site-footer a,
+.ast-small-footer a {
+  color: var(--gg-blue) !important;
+}
+
+.ast-small-footer .ast-footer-copyright a[href*="wpastra"],
+.ast-small-footer .ast-footer-copyright a[href*="astra"] {
+  display: none !important;
+}
+
+.ast-small-footer .ast-footer-copyright {
+  color: rgba(255,255,255,0.4) !important;
+  font-size: 13px !important;
+}
+
+
+/* ===================
+   15. HOMEPAGE — HERO (Concept B)
+   Apply class "gg-hero-b" to the Cover block
+   =================== */
+.gg-hero-b {
+  background: linear-gradient(160deg, #7DC25C 0%, #1FA5DC 40%, #0D2D52 100%) !important;
+  min-height: 560px !important;
+  border-radius: 0 !important;
+  padding: 4rem 2rem 3.5rem !important;
+}
+
+.gg-hero-b .wp-block-cover__background,
+.gg-hero-b .has-background-dim {
+  display: none !important;
+}
+
+.gg-hero-b .wp-block-cover__inner-container {
+  max-width: 720px !important;
+  margin: 0 auto !important;
+}
+
+.gg-hero-b .wp-block-image {
+  margin-bottom: 1.5rem !important;
+}
+
+.gg-hero-b h1 {
+  font-family: 'Fredoka', sans-serif !important;
+  font-size: 2.8rem !important;
+  font-weight: 600 !important;
+  color: #fff !important;
+  line-height: 1.15 !important;
+  margin-bottom: 1.25rem !important;
+}
+
+.gg-hero-b p {
+  color: rgba(255, 255, 255, 0.7) !important;
+  font-size: 1.1rem !important;
+  line-height: 1.6 !important;
+  max-width: 480px !important;
+  margin-left: auto !important;
+  margin-right: auto !important;
+  margin-bottom: 0.5rem !important;
+}
+
+.gg-hero-b .wp-block-buttons {
+  justify-content: center !important;
+  margin-top: 1.5rem !important;
+  margin-bottom: 2.5rem !important;
+}
+
+.gg-hero-b .wp-block-button__link {
+  font-size: 16px !important;
+  padding: 0.7em 2em !important;
+}
+
+
+/* ===================
+   16. HOMEPAGE — HERO INLINE STATS
+   Apply class "gg-hero-stats" to the Columns block
+   inside the Cover
+   =================== */
+.gg-hero-stats {
+  max-width: 600px !important;
+  margin: 0 auto !important;
+  gap: 0 !important;
+  background: transparent !important;
+}
+
+.gg-hero-stats .wp-block-column {
+  text-align: center !important;
+  padding: 0.75rem 1rem !important;
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  position: relative;
+}
+
+.gg-hero-stats .wp-block-column + .wp-block-column::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 15%;
+  height: 70%;
+  width: 1px;
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.gg-hero-stats .wp-block-column h2,
+.gg-hero-stats .wp-block-column h3 {
+  font-family: 'Fredoka', sans-serif !important;
+  font-size: 1.8rem !important;
+  font-weight: 600 !important;
+  color: var(--gg-sun) !important;
+  margin-bottom: 0.25rem !important;
+  line-height: 1.1;
+  white-space: nowrap !important;
+}
+
+.gg-hero-stats .wp-block-column p {
+  font-size: 11px !important;
+  color: rgba(255, 255, 255, 0.5) !important;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-weight: 600;
+  margin: 0 !important;
+  max-width: none !important;
+  white-space: nowrap !important;
+}
+
+
+/* ===================
+   17. HOMEPAGE — HIDE PAGE TITLE
+   Page ID 8 = "Connecting Garden Grove PoGo Trainers"
+   =================== */
+.page-id-8 .entry-title,
+.page-id-8 .ast-archive-title {
+  display: none !important;
+}
+
+
+/* ===================
+   18. GLOBAL — SMOOTH SCROLLING
+   =================== */
+html {
+  scroll-behavior: smooth;
+}
+
+a {
+  transition: color 0.15s;
+}
+
+
+/* ===================
+   19. MOBILE RESPONSIVENESS
+   =================== */
+@media (max-width: 768px) {
+  .gg-stats-row .wp-block-column,
+  .gg-feature-card {
+    margin-bottom: 12px;
+  }
+
+  .wp-block-cover__inner-container {
+    padding: 1.5rem !important;
+  }
+
+  .gg-hero-b {
+    min-height: 440px !important;
+    padding: 2.5rem 1.25rem 2rem !important;
+  }
+
+  .gg-hero-b h1 {
+    font-size: 2rem !important;
+  }
+
+  .gg-hero-b p {
+    font-size: 1rem !important;
+  }
+
+  .gg-hero-stats .wp-block-column h2,
+  .gg-hero-stats .wp-block-column h3 {
+    font-size: 1.4rem !important;
+  }
+
+  .gg-hero-stats .wp-block-column p {
+    font-size: 10px !important;
+  }
+}

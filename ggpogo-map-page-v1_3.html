@@ -1,0 +1,112 @@
+<!-- ============================================================
+     GGPoGo.com — /map page content
+     Version: 1.3
+     Paste this entire block into a single WordPress Custom HTML
+     block on the "Garden Grove PoGo Map" page (slug: map).
+
+     Requires: ggpogo-site-styles-v1_4_7.css (or later) pasted
+     into Appearance → Customize → Additional CSS first, since
+     this markup relies on the site-wide gg-page-header,
+     gg-section-label, gg-map-card, gg-map-tip, gg-card-icon, and
+     gg-cta-band classes.
+
+     v1.2 — info-grid icons switched from emoji to inline Lucide
+     line-icon SVGs (gg-card-icon), matching the icon style used
+     on Home/Events/Resources.
+     v1.3 — tip-box icon switched from raw 👆 emoji (rendered
+     oversized, no sizing rule existed for it) to an inline
+     Lucide "info" line-icon SVG, matching the rest of the page.
+     ============================================================ -->
+
+<div class="gg-page-header gg-page-header--short">
+  <div class="wp-block-cover__inner-container">
+    <h1>Garden Grove PoGo Map</h1>
+    <p>Explore Garden Grove PoGo points of interest around Garden Grove Park, including PokéStops, Gyms, Power Spots, campsite locations, and community-contributed markers.</p>
+  </div>
+</div>
+
+<p class="gg-section-label">Interactive Map</p>
+
+<section class="gg-map-card" aria-label="Interactive Garden Grove PoGo map">
+  <div class="gg-map-card-header">
+    <div>
+      <h2>Find your way around the park</h2>
+      <p>Move, zoom, and open map layers directly inside Google My Maps.</p>
+    </div>
+    <a
+      class="gg-map-open-btn"
+      href="https://www.google.com/maps/d/viewer?mid=1gZMbic46ir65cdPBttMdpVWyCvtRpfY&usp=sharing"
+      target="_blank"
+      rel="noopener"
+    >
+      Open Full Map
+    </a>
+  </div>
+
+  <p class="gg-map-tip">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <circle cx="12" cy="12" r="10"/>
+      <line x1="12" y1="16" x2="12" y2="12"/>
+      <line x1="12" y1="8" x2="12.01" y2="8"/>
+    </svg>
+    <span><strong>Tip:</strong> Tap any icon or highlighted area on the map to see its name and details.</span>
+  </p>
+
+  <div class="gg-map-embed-wrap">
+    <iframe
+      title="Garden Grove PoGo Google My Maps"
+      src="https://www.google.com/maps/d/embed?mid=1gZMbic46ir65cdPBttMdpVWyCvtRpfY&ehbc=2E312F"
+      loading="lazy"
+      allowfullscreen
+    ></iframe>
+  </div>
+
+  <p class="gg-map-help">On mobile, the embedded map can feel tight. Use <strong>Open Full Map</strong> for the best full screen experience.</p>
+</section>
+
+<div class="gg-map-info-grid">
+  <article class="gg-map-info-card">
+    <div class="gg-card-icon gg-card-icon--blue">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/>
+        <circle cx="12" cy="10" r="3"/>
+      </svg>
+    </div>
+    <h3>What's on the map</h3>
+    <p>Park POIs, event meetup areas, and other community reference points around Garden Grove Park.</p>
+  </article>
+
+  <article class="gg-map-info-card">
+    <div class="gg-card-icon gg-card-icon--green">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <circle cx="12" cy="12" r="10"/>
+        <polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/>
+      </svg>
+    </div>
+    <h3>Best on the go</h3>
+    <p>The embedded view works well for quick checks. For walking the park, the full Google My Maps view is usually easier to navigate.</p>
+  </article>
+
+  <article class="gg-map-info-card">
+    <div class="gg-card-icon gg-card-icon--orange">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/>
+        <circle cx="9" cy="7" r="4"/>
+        <path d="M22 21v-2a4 4 0 0 0-3-3.87"/>
+        <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+      </svg>
+    </div>
+    <h3>Community maintained</h3>
+    <p>Map details may be updated as park locations, game locations, or community needs change.</p>
+  </article>
+</div>
+
+<div class="gg-cta-band gg-cta-band--blue">
+  <h2>Heading to an event?</h2>
+  <p>Check the calendar for upcoming raids, Community Days, and Raid Hours at Garden Grove Park.</p>
+  <div class="wp-block-buttons">
+    <div class="wp-block-button">
+      <a class="wp-block-button__link" href="/events">See Events</a>
+    </div>
+  </div>
+</div>

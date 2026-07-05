@@ -1,0 +1,145 @@
+/* ============================================================
+   GGPoGo.com — Homepage Concept B (REVISED)
+   REPLACES the previous homepage-b-css block in Additional CSS.
+   Fixes: more vertical breathing room, wider stats, no text wrapping
+   ============================================================ */
+
+/* --- HOMEPAGE HERO --- */
+.gg-hero-b {
+  background: linear-gradient(160deg, #7DC25C 0%, #1FA5DC 40%, #0D2D52 100%) !important;
+  min-height: 560px !important;
+  border-radius: 0 !important;
+  padding: 4rem 2rem 3.5rem !important;
+}
+
+.gg-hero-b .wp-block-cover__background,
+.gg-hero-b .has-background-dim {
+  display: none !important;
+}
+
+.gg-hero-b .wp-block-cover__inner-container {
+  max-width: 720px !important;
+  margin: 0 auto !important;
+}
+
+/* Logo image */
+.gg-hero-b .wp-block-image {
+  margin-bottom: 1.5rem !important;
+}
+
+.gg-hero-b h1 {
+  font-family: 'Fredoka', sans-serif !important;
+  font-size: 2.8rem !important;
+  font-weight: 600 !important;
+  color: #fff !important;
+  line-height: 1.15 !important;
+  margin-bottom: 1.25rem !important;
+}
+
+.gg-hero-b p {
+  color: rgba(255, 255, 255, 0.7) !important;
+  font-size: 1.1rem !important;
+  line-height: 1.6 !important;
+  max-width: 480px !important;
+  margin-left: auto !important;
+  margin-right: auto !important;
+  margin-bottom: 0.5rem !important;
+}
+
+.gg-hero-b .wp-block-buttons {
+  justify-content: center !important;
+  margin-top: 1.5rem !important;
+  margin-bottom: 2.5rem !important;
+}
+
+.gg-hero-b .wp-block-button__link {
+  font-size: 16px !important;
+  padding: 0.7em 2em !important;
+}
+
+/* --- HERO INLINE STATS --- */
+.gg-hero-stats {
+  max-width: 600px !important;
+  margin: 0 auto !important;
+  gap: 0 !important;
+  background: transparent !important;
+}
+
+.gg-hero-stats .wp-block-column {
+  text-align: center !important;
+  padding: 0.75rem 1rem !important;
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  position: relative;
+}
+
+.gg-hero-stats .wp-block-column + .wp-block-column::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 15%;
+  height: 70%;
+  width: 1px;
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.gg-hero-stats .wp-block-column h3,
+.gg-hero-stats .wp-block-column h2 {
+  font-family: 'Fredoka', sans-serif !important;
+  font-size: 1.8rem !important;
+  font-weight: 600 !important;
+  color: #F5C842 !important;
+  margin-bottom: 0.25rem !important;
+  line-height: 1.1;
+  white-space: nowrap !important;
+}
+
+.gg-hero-stats .wp-block-column p {
+  font-size: 11px !important;
+  color: rgba(255, 255, 255, 0.5) !important;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-weight: 600;
+  margin: 0 !important;
+  max-width: none !important;
+  white-space: nowrap !important;
+}
+
+/* --- HOMEPAGE BODY SECTIONS WRAPPER --- */
+.gg-home-sections {
+  max-width: 800px !important;
+  margin: 0 auto !important;
+  padding: 1.5rem 1rem !important;
+}
+
+/* --- HIDE PAGE TITLE ON HOMEPAGE --- */
+.page-id-8 .entry-title,
+.page-id-8 .ast-archive-title {
+  display: none !important;
+}
+
+/* --- MOBILE --- */
+@media (max-width: 768px) {
+  .gg-hero-b {
+    min-height: 440px !important;
+    padding: 2.5rem 1.25rem 2rem !important;
+  }
+
+  .gg-hero-b h1 {
+    font-size: 2rem !important;
+  }
+
+  .gg-hero-b p {
+    font-size: 1rem !important;
+  }
+
+  .gg-hero-stats .wp-block-column h3,
+  .gg-hero-stats .wp-block-column h2 {
+    font-size: 1.4rem !important;
+  }
+
+  .gg-hero-stats .wp-block-column p {
+    font-size: 10px !important;
+  }
+}

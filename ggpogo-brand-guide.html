@@ -1,0 +1,889 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Garden Grove PoGo — Brand Guide</title>
+  <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&family=Nunito:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    html {
+      scroll-behavior: smooth;
+    }
+
+    body {
+      font-family: 'Nunito', sans-serif;
+      background: #FFFCF2;
+      color: #0D2D52;
+      line-height: 1.7;
+    }
+
+    .container {
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 0;
+    }
+
+    /* COVER PAGE */
+    .cover {
+      background: linear-gradient(135deg, rgba(31, 165, 220, 0.15), rgba(125, 194, 92, 0.1));
+      padding: 6rem 3rem;
+      text-align: center;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      border-bottom: 2px solid #E8DEC0;
+      page-break-after: always;
+    }
+
+    .logo-hero {
+      font-size: 120px;
+      margin-bottom: 2rem;
+    }
+
+    .cover h1 {
+      font-family: 'Fredoka', sans-serif;
+      font-size: 48px;
+      font-weight: 700;
+      color: #0D2D52;
+      margin-bottom: 0.5rem;
+    }
+
+    .cover .subtitle {
+      font-size: 18px;
+      color: #1FA5DC;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      margin-bottom: 2rem;
+    }
+
+    .cover p {
+      font-size: 16px;
+      color: #3D5B82;
+      max-width: 500px;
+      margin: 0 auto 3rem;
+    }
+
+    .cover-meta {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 2rem;
+      max-width: 500px;
+      margin: 0 auto;
+      padding-top: 2rem;
+      border-top: 1px solid rgba(13, 45, 82, 0.2);
+    }
+
+    .meta-item {
+      text-align: center;
+    }
+
+    .meta-label {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: #7A8FA8;
+      font-weight: 600;
+      margin-bottom: 0.5rem;
+    }
+
+    .meta-value {
+      font-size: 16px;
+      font-weight: 600;
+      color: #0D2D52;
+    }
+
+    /* SECTIONS */
+    section {
+      padding: 4rem 3rem;
+      border-bottom: 2px solid #E8DEC0;
+      page-break-inside: avoid;
+    }
+
+    section:last-of-type {
+      border-bottom: none;
+    }
+
+    h2 {
+      font-family: 'Fredoka', sans-serif;
+      font-size: 32px;
+      font-weight: 600;
+      color: #0D2D52;
+      margin-bottom: 1.5rem;
+    }
+
+    h3 {
+      font-family: 'Fredoka', sans-serif;
+      font-size: 16px;
+      font-weight: 600;
+      color: #0D2D52;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin: 2rem 0 1rem;
+    }
+
+    p {
+      font-size: 16px;
+      color: #3D5B82;
+      margin-bottom: 1.5rem;
+      line-height: 1.8;
+    }
+
+    strong {
+      color: #0D2D52;
+      font-weight: 600;
+    }
+
+    /* COLOR PALETTE */
+    .color-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      gap: 1.5rem;
+      margin: 2rem 0;
+    }
+
+    .color-swatch {
+      border-radius: 12px;
+      padding: 1.5rem 1rem;
+      text-align: center;
+      border: 1px solid rgba(13, 45, 82, 0.1);
+      min-height: 120px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+    }
+
+    .color-name {
+      font-family: 'Fredoka', sans-serif;
+      font-size: 13px;
+      font-weight: 600;
+      margin-bottom: 0.75rem;
+    }
+
+    .color-hex {
+      font-family: 'Nunito', monospace;
+      font-size: 12px;
+      opacity: 0.8;
+      font-weight: 500;
+    }
+
+    /* COLOR SWATCHES */
+    .swatch-primary { background: #1FA5DC; color: white; }
+    .swatch-primary-deep { background: #0E5C9E; color: white; }
+    .swatch-secondary { background: #7DC25C; color: white; }
+    .swatch-secondary-deep { background: #3F8A36; color: white; }
+    .swatch-accent { background: #F08838; color: white; }
+    .swatch-accent-deep { background: #C45A1F; color: white; }
+    .swatch-paper { background: #FFFCF2; color: #0D2D52; border: 2px solid #E8DEC0; }
+    .swatch-paper-dim { background: #F5EFDC; color: #0D2D52; border: 1px solid #E8DEC0; }
+    .swatch-paper-edge { background: #E8DEC0; color: #0D2D52; }
+    .swatch-ink { background: #0D2D52; color: white; }
+    .swatch-ink-soft { background: #3D5B82; color: white; }
+    .swatch-ink-mute { background: #7A8FA8; color: white; }
+    .swatch-sun { background: #F5C842; color: #0D2D52; }
+    .swatch-sun-deep { background: #C99520; color: white; }
+
+    /* TYPOGRAPHY */
+    .type-sample {
+      background: white;
+      border: 1px solid #E8DEC0;
+      border-radius: 12px;
+      padding: 2rem;
+      margin: 1.5rem 0;
+    }
+
+    .type-label {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: #7A8FA8;
+      font-weight: 600;
+      margin-bottom: 0.5rem;
+    }
+
+    .type-display {
+      font-family: 'Fredoka', sans-serif;
+      font-size: 32px;
+      font-weight: 600;
+      color: #0D2D52;
+      margin-bottom: 2rem;
+    }
+
+    .type-heading {
+      font-family: 'Fredoka', sans-serif;
+      font-size: 20px;
+      font-weight: 600;
+      color: #0D2D52;
+      margin-bottom: 1.5rem;
+    }
+
+    .type-body {
+      font-family: 'Nunito', sans-serif;
+      font-size: 16px;
+      color: #3D5B82;
+      margin-bottom: 1rem;
+    }
+
+    .type-small {
+      font-family: 'Nunito', sans-serif;
+      font-size: 12px;
+      color: #7A8FA8;
+    }
+
+    /* CARDS */
+    .card {
+      background: white;
+      border: 2px solid #E8DEC0;
+      border-radius: 16px;
+      padding: 1.5rem;
+      margin: 1.5rem 0;
+      box-shadow: 0 2px 8px rgba(13, 45, 82, 0.06);
+    }
+
+    .card h4 {
+      font-family: 'Fredoka', sans-serif;
+      font-size: 14px;
+      font-weight: 600;
+      color: #0D2D52;
+      margin-bottom: 0.75rem;
+    }
+
+    /* BUTTONS */
+    .button-group {
+      display: flex;
+      gap: 1rem;
+      flex-wrap: wrap;
+      margin: 2rem 0;
+    }
+
+    button {
+      font-family: 'Fredoka', sans-serif;
+      font-weight: 500;
+      font-size: 14px;
+      padding: 0.75rem 1.5rem;
+      border-radius: 50px;
+      border: none;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .btn-primary {
+      background: #1FA5DC;
+      color: white;
+    }
+
+    .btn-primary:hover {
+      background: #0E5C9E;
+      transform: translateY(-2px);
+    }
+
+    .btn-secondary {
+      background: #7DC25C;
+      color: white;
+    }
+
+    .btn-secondary:hover {
+      background: #3F8A36;
+      transform: translateY(-2px);
+    }
+
+    .btn-outline {
+      background: transparent;
+      border: 2px solid #1FA5DC;
+      color: #1FA5DC;
+    }
+
+    .btn-outline:hover {
+      background: rgba(31, 165, 220, 0.1);
+    }
+
+    /* DO'S AND DON'TS */
+    .dos-donts {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1.5rem;
+      margin: 2rem 0;
+    }
+
+    .do-box {
+      background: rgba(125, 194, 92, 0.1);
+      border-left: 4px solid #7DC25C;
+      padding: 1.5rem;
+      border-radius: 8px;
+    }
+
+    .dont-box {
+      background: rgba(232, 74, 61, 0.1);
+      border-left: 4px solid #E84A3D;
+      padding: 1.5rem;
+      border-radius: 8px;
+    }
+
+    .do-label {
+      font-weight: 600;
+      color: #3F8A36;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 0.5rem;
+    }
+
+    .dont-label {
+      font-weight: 600;
+      color: #A82A20;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 0.5rem;
+    }
+
+    .do-box p, .dont-box p {
+      font-size: 14px;
+      margin: 0;
+    }
+
+    /* TONE EXAMPLES */
+    .tone-box {
+      background: #F5EFDC;
+      border-left: 4px solid #F5C842;
+      padding: 1.5rem;
+      border-radius: 8px;
+      margin: 1rem 0;
+      font-size: 14px;
+      font-style: italic;
+      color: #3D5B82;
+    }
+
+    /* GRID */
+    .grid-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 2rem;
+      margin: 2rem 0;
+    }
+
+    @media (max-width: 768px) {
+      .grid-2 {
+        grid-template-columns: 1fr;
+      }
+
+      .dos-donts {
+        grid-template-columns: 1fr;
+      }
+
+      .cover {
+        padding: 3rem 1.5rem;
+      }
+
+      section {
+        padding: 2rem 1.5rem;
+      }
+
+      h2 {
+        font-size: 24px;
+      }
+    }
+
+    /* PRINT STYLES */
+    @media print {
+      body {
+        margin: 0;
+        padding: 0;
+      }
+
+      section {
+        page-break-inside: avoid;
+      }
+
+      .color-grid, .card, .button-group, .dos-donts {
+        page-break-inside: avoid;
+      }
+    }
+
+    /* TABLE */
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 1.5rem 0;
+    }
+
+    th {
+      background: #F5EFDC;
+      padding: 1rem;
+      text-align: left;
+      font-weight: 600;
+      font-size: 13px;
+      color: #0D2D52;
+      border-bottom: 2px solid #E8DEC0;
+    }
+
+    td {
+      padding: 0.75rem 1rem;
+      border-bottom: 1px solid #E8DEC0;
+      font-size: 14px;
+    }
+
+    tr:last-child td {
+      border-bottom: none;
+    }
+
+    /* FOOTER */
+    footer {
+      text-align: center;
+      padding: 2rem 3rem;
+      color: #7A8FA8;
+      font-size: 12px;
+      border-top: 2px solid #E8DEC0;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- COVER PAGE -->
+  <div class="cover">
+    <div class="logo-hero"><img src="https://ggpogo.com/wp-content/uploads/2026/05/logo-full.png" alt="Garden Grove PoGo" style="max-width: 280px; height: auto;"></div>
+    <h1>Garden Grove PoGo</h1>
+    <p class="subtitle">Brand Identity Guide</p>
+    <p>A comprehensive visual and verbal identity system for the Garden Grove Pokémon GO community.</p>
+    <div class="cover-meta">
+      <div class="meta-item">
+        <div class="meta-label">Established</div>
+        <div class="meta-value">January 2024</div>
+      </div>
+      <div class="meta-item">
+        <div class="meta-label">Community</div>
+        <div class="meta-value">6,664+ members</div>
+      </div>
+      <div class="meta-item">
+        <div class="meta-label">Location</div>
+        <div class="meta-value">Garden Grove, CA</div>
+      </div>
+      <div class="meta-item">
+        <div class="meta-label">Contact</div>
+        <div class="meta-value">gardengrovepogo@gmail.com</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- BRAND OVERVIEW -->
+  <section>
+    <h2>Brand Overview</h2>
+    <p>Garden Grove PoGo is a thriving community hub for local Pokémon GO trainers. Founded in January 2024, we've grown to over 6,600 members who gather to coordinate raids, celebrate special events, and build friendships around a shared passion for the game.</p>
+    <p>Our brand identity reflects our core values: <strong>welcoming, inclusive, enthusiastic, and genuine</strong>. We're building a space where trainers of all levels feel at home—from casual players to competitive raiders.</p>
+    <h3>Brand Personality</h3>
+    <p>We are approachable but knowledgeable, playful but respectful, energetic but authentic. Our design and voice prioritize clarity, warmth, and a sense of community over corporate polish or excessive formality.</p>
+  </section>
+
+  <!-- COLOR SYSTEM -->
+  <section>
+    <h2>Color System</h2>
+    <p>Our palette is warm, accessible, and balanced. The primary colors anchor the system; secondary and supporting colors create visual depth and guide attention. All colors are selected for accessibility and work in both light and dark contexts.</p>
+
+    <h3>Primary Colors</h3>
+    <div class="color-grid">
+      <div class="color-swatch swatch-primary">
+        <div class="color-name">Primary Blue</div>
+        <div class="color-hex">#1FA5DC</div>
+      </div>
+      <div class="color-swatch swatch-primary-deep">
+        <div class="color-name">Blue Deep</div>
+        <div class="color-hex">#0E5C9E</div>
+      </div>
+      <div class="color-swatch swatch-secondary">
+        <div class="color-name">Secondary Green</div>
+        <div class="color-hex">#7DC25C</div>
+      </div>
+      <div class="color-swatch swatch-secondary-deep">
+        <div class="color-name">Green Deep</div>
+        <div class="color-hex">#3F8A36</div>
+      </div>
+      <div class="color-swatch swatch-accent">
+        <div class="color-name">Accent Orange</div>
+        <div class="color-hex">#F08838</div>
+      </div>
+      <div class="color-swatch swatch-accent-deep">
+        <div class="color-name">Orange Deep</div>
+        <div class="color-hex">#C45A1F</div>
+      </div>
+    </div>
+
+    <h3>Supporting Colors</h3>
+    <div class="color-grid">
+      <div class="color-swatch swatch-paper">
+        <div class="color-name">Paper Base</div>
+        <div class="color-hex">#FFFCF2</div>
+      </div>
+      <div class="color-swatch swatch-paper-dim">
+        <div class="color-name">Paper Dim</div>
+        <div class="color-hex">#F5EFDC</div>
+      </div>
+      <div class="color-swatch swatch-paper-edge">
+        <div class="color-name">Paper Edge</div>
+        <div class="color-hex">#E8DEC0</div>
+      </div>
+      <div class="color-swatch swatch-sun">
+        <div class="color-name">Sun / Highlight</div>
+        <div class="color-hex">#F5C842</div>
+      </div>
+      <div class="color-swatch swatch-sun-deep">
+        <div class="color-name">Sun Deep</div>
+        <div class="color-hex">#C99520</div>
+      </div>
+      <div class="color-swatch swatch-ink">
+        <div class="color-name">Ink (Text)</div>
+        <div class="color-hex">#0D2D52</div>
+      </div>
+      <div class="color-swatch swatch-ink-soft">
+        <div class="color-name">Ink Soft</div>
+        <div class="color-hex">#3D5B82</div>
+      </div>
+      <div class="color-swatch swatch-ink-mute">
+        <div class="color-name">Ink Mute</div>
+        <div class="color-hex">#7A8FA8</div>
+      </div>
+    </div>
+
+    <h3>Color Usage Guidelines</h3>
+    <table>
+      <tr>
+        <th>Color</th>
+        <th>Primary Use</th>
+      </tr>
+      <tr>
+        <td><strong>Primary Blue</strong></td>
+        <td>Links, CTAs, primary actions, highlights</td>
+      </tr>
+      <tr>
+        <td><strong>Secondary Green</strong></td>
+        <td>Secondary actions, success states, positive feedback</td>
+      </tr>
+      <tr>
+        <td><strong>Accent Orange</strong></td>
+        <td>Important announcements, event highlights, special content</td>
+      </tr>
+      <tr>
+        <td><strong>Paper Colors</strong></td>
+        <td>Backgrounds, card surfaces, subtle accents</td>
+      </tr>
+      <tr>
+        <td><strong>Ink Colors</strong></td>
+        <td>Text hierarchy (ink = headers, ink-soft = body, ink-mute = captions)</td>
+      </tr>
+      <tr>
+        <td><strong>Sun / Highlight</strong></td>
+        <td>Tips, special highlights, callout boxes</td>
+      </tr>
+    </table>
+  </section>
+
+  <!-- TYPOGRAPHY -->
+  <section>
+    <h2>Typography</h2>
+    <p>Our type system uses two carefully selected Google Fonts that work together to create a warm, accessible, and distinctive visual voice.</p>
+
+    <h3>Typeface Selection</h3>
+    <div class="grid-2">
+      <div class="card">
+        <h4>Fredoka</h4>
+        <p style="font-family: 'Fredoka', sans-serif; font-size: 16px; margin-bottom: 1rem;">Used for all headings and display text. Fredoka is friendly, modern, and distinctive—it carries the personality of the brand.</p>
+        <p style="font-size: 12px; color: #7A8FA8;">Weights: 400, 500, 600, 700</p>
+      </div>
+      <div class="card">
+        <h4>Nunito</h4>
+        <p style="font-family: 'Nunito', sans-serif; font-size: 16px; margin-bottom: 1rem;">Used for body text and supporting copy. Nunito is warm, legible, and pairs perfectly with Fredoka.</p>
+        <p style="font-size: 12px; color: #7A8FA8;">Weights: 400, 500, 600, 700</p>
+      </div>
+    </div>
+
+    <h3>Type Scale</h3>
+    <div class="type-sample">
+      <div class="type-label">Display (Use sparingly for hero sections)</div>
+      <div class="type-display">28–32px, weight 600</div>
+    </div>
+
+    <div class="type-sample">
+      <div class="type-label">Heading 1 (Page titles)</div>
+      <div style="font-family: 'Fredoka', sans-serif; font-size: 24px; font-weight: 600; color: #0D2D52; margin-bottom: 0.5rem;">24px, weight 600</div>
+    </div>
+
+    <div class="type-sample">
+      <div class="type-label">Heading 2 (Section headers)</div>
+      <div style="font-family: 'Fredoka', sans-serif; font-size: 20px; font-weight: 600; color: #0D2D52; margin-bottom: 0.5rem;">20px, weight 600</div>
+    </div>
+
+    <div class="type-sample">
+      <div class="type-label">Heading 3 (Subsections)</div>
+      <div style="font-family: 'Fredoka', sans-serif; font-size: 14px; font-weight: 600; color: #0D2D52; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.5rem;">14px, weight 600, uppercase</div>
+    </div>
+
+    <div class="type-sample">
+      <div class="type-label">Body Text (Primary content)</div>
+      <div style="font-family: 'Nunito', sans-serif; font-size: 16px; color: #3D5B82; margin-bottom: 0.5rem;">16px, weight 400</div>
+    </div>
+
+    <div class="type-sample">
+      <div class="type-label">Small / Caption (Supporting info, labels)</div>
+      <div style="font-family: 'Nunito', sans-serif; font-size: 12px; color: #7A8FA8;">12–13px, weight 400–500</div>
+    </div>
+  </section>
+
+  <!-- LOGO SYSTEM -->
+  <section>
+    <h2>Logo System</h2>
+    <p>The Garden Grove PoGo logo exists in two primary forms: the full wordmark and the mark-only icon. Use the wordmark for official headers, letterheads, and primary branding. Use the mark for favicons, profile pictures, and small-space contexts.</p>
+
+    <h3>Logo Variations</h3>
+    <div class="grid-2">
+      <div class="card" style="text-align: center;">
+        <img src="https://ggpogo.com/wp-content/uploads/2026/05/logo-no-text.png" alt="GGPoGo Mark" style="max-width: 120px; height: auto; margin: 2rem auto;">
+        <h4>Mark Only</h4>
+        <p>Use for favicons, app icons, profile pictures, and social media avatars. Maintains recognition at small sizes.</p>
+      </div>
+      <div class="card" style="text-align: center;">
+        <img src="https://ggpogo.com/wp-content/uploads/2026/05/logo-full.png" alt="Garden Grove PoGo Wordmark" style="max-width: 240px; height: auto; margin: 1.5rem auto;">
+        <h4>Full Wordmark</h4>
+        <p>Use for headers, letterheads, official documents, and anywhere the full brand identity is needed.</p>
+      </div>
+    </div>
+
+    <h3>Clear Space & Sizing</h3>
+    <p>Always maintain a clear space around the logo equal to the height of the mark. This preserves visual breathing room and prevents the logo from feeling cramped.</p>
+    <p><strong>Minimum Size:</strong> 40px × 40px for the mark, 150px width for the wordmark. Never scale below these minimums as legibility will suffer.</p>
+
+    <h3>Logo Don'ts</h3>
+    <div class="dont-box" style="margin-top: 1.5rem;">
+      <div class="dont-label">Never:</div>
+      <ul style="margin: 0; padding-left: 1.5rem; color: #3D5B82; font-size: 14px;">
+        <li>Stretch or distort the logo</li>
+        <li>Change the colors</li>
+        <li>Add shadows, gradients, or effects</li>
+        <li>Rotate the logo</li>
+        <li>Place on busy or clashing backgrounds</li>
+        <li>Abbreviate or modify the wordmark</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- DESIGN SYSTEM -->
+  <section>
+    <h2>Design System</h2>
+    <p>Our design philosophy centers on <strong>papercraft simplicity</strong>—warm, approachable surfaces with generous whitespace, soft rounded corners, and gentle depth. Think handmade cards and printed materials; not cold corporate design.</p>
+
+    <h3>Card & Surface Style</h3>
+    <p>All surfaces use the paper base color (#FFFCF2) with subtle borders in paper-edge (#E8DEC0). Rounded corners are 12–16px. Shadows are soft and minimal (0 2px 8px rgba(13, 45, 82, 0.06)).</p>
+
+    <div class="card">
+      <h4>Card Example</h4>
+      <p>This is a properly styled card. Notice the warm paper background, soft border, rounded corners, and gentle shadow. Use cards for event listings, announcements, testimonials, and grouped content.</p>
+    </div>
+
+    <h3>Interactive Elements</h3>
+    <p>Buttons use pill-shaped styling (border-radius: 50px) and always include a hover state with subtle lift (transform: translateY(-2px)).</p>
+
+    <div class="button-group">
+      <button class="btn-primary">Primary Action</button>
+      <button class="btn-secondary">Secondary Action</button>
+      <button class="btn-outline">Outline Button</button>
+    </div>
+
+    <h3>Spacing & Grid</h3>
+    <p>Use a consistent spacing scale to maintain visual rhythm: 0.5rem (8px), 1rem (16px), 1.5rem (24px), 2rem (32px), 3rem (48px). These units scale across all elements—margins, padding, gaps—to create a cohesive system.</p>
+    <p>Layout: Use flexible grid systems that adapt to content. For multi-column layouts, aim for consistent column widths with equal gaps (1–2rem). Always prioritize readability and mobile responsiveness.</p>
+  </section>
+
+  <!-- PATTERNS & IMAGERY -->
+  <section>
+    <h2>Patterns & Imagery</h2>
+
+    <h3>Wave Pattern</h3>
+    <p>The wave background asset is our signature pattern. It's organic, flowing, and suggests growth—perfect for hero sections and full-width backgrounds. Use the wave to frame important content or create visual interest in large open spaces.</p>
+
+    <h3>Photography & Illustration Style</h3>
+    <p><strong>Photography:</strong> Favor warm, natural lighting and authentic community moments over staged corporate photography. Real meetup photos, candid trainer shots, and outdoor game-play moments resonate with our audience.</p>
+    <p><strong>Illustrations:</strong> When illustrations are needed, use a simple, friendly style that complements Fredoka. Avoid overly realistic or overly flat styles—aim for a mid-ground that feels hand-crafted and approachable.</p>
+    <p><strong>Color in Imagery:</strong> Support the brand palette by incorporating blue, green, and orange accents in photography and illustrations. Warm, natural lighting reinforces the "outdoor community" feeling.</p>
+
+    <h3>Icons</h3>
+    <p>Icons should be simple, outline-style, and easily recognizable at small sizes. Use a consistent stroke weight and corner radius. Icons inherit color from their parent context (links use blue, success states use green, etc.).</p>
+  </section>
+
+  <!-- TONE OF VOICE -->
+  <section>
+    <h2>Tone of Voice</h2>
+    <p>Our voice is <strong>enthusiastic but genuine, welcoming but never condescending, knowledgeable but accessible</strong>. We're speaking to trainers who share a passion for Pokémon GO—acknowledge that shared passion and make them feel at home.</p>
+
+    <h3>Voice Characteristics</h3>
+    <ul style="margin: 1.5rem 0; padding-left: 2rem; color: #3D5B82;">
+      <li><strong>Friendly:</strong> Use conversational language and warm punctuation (exclamation points are fine in the right context)</li>
+      <li><strong>Clear:</strong> Avoid jargon; explain the "why" not just the "what"</li>
+      <li><strong>Inclusive:</strong> Welcome trainers of all levels, backgrounds, and experience</li>
+      <li><strong>Action-oriented:</strong> Use active voice; tell people what they can do, not what they can't</li>
+    </ul>
+
+    <h3>Tone Examples</h3>
+
+    <div class="tone-box">
+      <strong>✓ Correct:</strong> "Join us Wednesday at 6 PM for Raid Hour! We're tackling a 5-star raid and would love to have you. Bring your best team and meet some new trainers!"
+    </div>
+
+    <div class="tone-box">
+      <strong>✓ Correct:</strong> "New to the group? That's awesome! Head to our Discord to introduce yourself and find your raid squad. We're all here to help."
+    </div>
+
+    <div class="tone-box">
+      <strong>✗ Avoid:</strong> "RAID HOUR IS HAPPENING LET'S GOOOO 🔥🔥🔥" (too chaotic)
+    </div>
+
+    <div class="tone-box">
+      <strong>✗ Avoid:</strong> "It is with great pleasure that we announce a raid event." (too formal for a community)
+    </div>
+
+    <div class="tone-box">
+      <strong>✗ Avoid:</strong> "Only trainers with max-level teams need apply." (exclusionary)
+    </div>
+  </section>
+
+  <!-- DO'S AND DON'TS -->
+  <section>
+    <h2>Do's and Don'ts</h2>
+
+    <h3>Design</h3>
+    <div class="dos-donts">
+      <div class="do-box">
+        <div class="do-label">✓ Do</div>
+        <p>Use blue and green together for visual cohesion</p>
+      </div>
+      <div class="dont-box">
+        <div class="dont-label">✗ Don't</div>
+        <p>Introduce red, pink, or purple—they're not on brand</p>
+      </div>
+      <div class="do-box">
+        <div class="do-label">✓ Do</div>
+        <p>Use plenty of whitespace and padding</p>
+      </div>
+      <div class="dont-box">
+        <div class="dont-label">✗ Don't</div>
+        <p>Crowd content or use busy dark backgrounds</p>
+      </div>
+      <div class="do-box">
+        <div class="do-label">✓ Do</div>
+        <p>Round corners at 12–16px for a friendly feel</p>
+      </div>
+      <div class="dont-box">
+        <div class="dont-label">✗ Don't</div>
+        <p>Use sharp 90-degree corners or harsh effects</p>
+      </div>
+      <div class="do-box">
+        <div class="do-label">✓ Do</div>
+        <p>Use Fredoka + Nunito consistently</p>
+      </div>
+      <div class="dont-box">
+        <div class="dont-label">✗ Don't</div>
+        <p>Mix in other typefaces—stick to the system</p>
+      </div>
+    </div>
+
+    <h3>Content & Community</h3>
+    <div class="dos-donts">
+      <div class="do-box">
+        <div class="do-label">✓ Do</div>
+        <p>Link to official Niantic sources and well-established community tools</p>
+      </div>
+      <div class="dont-box">
+        <div class="dont-label">✗ Don't</div>
+        <p>Promote dataminers, unofficial maps, or paid raid services</p>
+      </div>
+      <div class="do-box">
+        <div class="do-label">✓ Do</div>
+        <p>Celebrate community wins and inclusive moments</p>
+      </div>
+      <div class="dont-box">
+        <div class="dont-label">✗ Don't</div>
+        <p>Post divisive content or gatekeep the community</p>
+      </div>
+      <div class="do-box">
+        <div class="do-label">✓ Do</div>
+        <p>Use warm, authentic community photos</p>
+      </div>
+      <div class="dont-box">
+        <div class="dont-label">✗ Don't</div>
+        <p>Use overly staged or corporate-looking images</p>
+      </div>
+      <div class="do-box">
+        <div class="do-label">✓ Do</div>
+        <p>Welcome trainers of all levels</p>
+      </div>
+      <div class="dont-box">
+        <div class="dont-label">✗ Don't</div>
+        <p>Use em dashes (–) or en dashes (—) in web copy</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- APPLICATIONS -->
+  <section>
+    <h2>Application Examples</h2>
+    <p>Below are mockups of the brand system applied to real use cases. Use these as reference when building new materials.</p>
+
+    <h3>Website Hero Section</h3>
+    <div class="card" style="background: linear-gradient(135deg, rgba(31, 165, 220, 0.1), rgba(125, 194, 92, 0.08)); border: 2px solid #E8DEC0; text-align: center; padding: 3rem 2rem;">
+      <div style="font-size: 64px; margin-bottom: 1.5rem;">🌿</div>
+      <h4 style="font-family: 'Fredoka', sans-serif; font-size: 28px; margin-bottom: 1rem;">Welcome Trainers!</h4>
+      <p>Join Garden Grove PoGo and become part of a thriving community of Pokémon GO trainers.</p>
+      <div class="button-group" style="justify-content: center;">
+        <button class="btn-primary">Join Discord</button>
+        <button class="btn-outline">Learn More</button>
+      </div>
+    </div>
+
+    <h3>Event Announcement Card</h3>
+    <div class="card">
+      <div style="display: flex; gap: 1rem; align-items: start; margin-bottom: 1rem;">
+        <div style="background: #1FA5DC; color: white; width: 50px; height: 50px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 24px; flex-shrink: 0;">⚔</div>
+        <div>
+          <h4>Raid Hour Wednesday</h4>
+          <p style="font-size: 12px; color: #7A8FA8; margin: 0.25rem 0;">6:00 PM - 7:00 PM</p>
+        </div>
+      </div>
+      <p>Join us for our weekly Raid Hour! This week we're tackling 5-star raids at popular Garden Grove locations. All levels welcome.</p>
+      <button class="btn-primary" style="width: 100%; margin-top: 1rem;">Learn More</button>
+    </div>
+
+    <h3>Social Media Post</h3>
+    <div class="card" style="max-width: 400px;">
+      <div style="background: linear-gradient(135deg, rgba(125, 194, 92, 0.2), rgba(31, 165, 220, 0.15)); height: 200px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 80px; margin-bottom: 1rem;">🎉</div>
+      <h4>Community Spotlight</h4>
+      <p>Huge thanks to all the trainers who showed up to our Community Day! We had an amazing turnout and everyone's Pokédex is looking fuller. See you at Raid Hour Wednesday! 💚</p>
+      <p style="font-size: 12px; color: #7A8FA8; margin-top: 1rem;">#GardenGrovePoGo #PokémonGO #CommunityDay</p>
+    </div>
+  </section>
+
+  <!-- RESOURCES -->
+  <section>
+    <h2>Resources & Assets</h2>
+    <p>The following assets are available for use in official materials:</p>
+    <ul style="padding-left: 2rem; color: #3D5B82;">
+      <li>Logo files (PNG, SVG, with and without wordmark)</li>
+      <li>Wave pattern background asset</li>
+      <li>Color palette swatches (for Figma, Sketch, Adobe)</li>
+      <li>Icon set (outline SVGs)</li>
+      <li>Letterhead template (Word .docx)</li>
+      <li>Social media templates (Instagram, Discord, Campfire specs)</li>
+    </ul>
+    <p style="margin-top: 2rem; font-style: italic; color: #7A8FA8;">For questions or to request additional assets, contact <strong>gardengrovepogo@gmail.com</strong></p>
+  </section>
+
+  <!-- FOOTER -->
+  <footer>
+    Garden Grove PoGo Brand Guide — 2026 | gardengrovepogo@gmail.com
+  </footer>
+
+</body>
+</html>

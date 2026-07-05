@@ -1,0 +1,303 @@
+--- wordpress-block-v2_12_13.html
++++ wordpress-block-v2_12_14.html
+@@ -298,35 +298,31 @@
+     });
+   }
+ 
+-  // Migrate existing device-based check-in data from the old UUID
+-  // to the new Firebase Auth uid. Runs once on first Google login
+-  // if the device has a stored client ID. Writes a mapping node
+-  // at /migrations/{old-uuid} so we can audit what was migrated.
++  // Link this browser's random client id to the signed-in user profile.
++  // Earlier builds wrote this to a global /migrations path, which caused
++  // permission errors for normal attendees. Keeping the mapping under
++  // /users/{uid}/linkedClientIds keeps it owned by that signed-in user
++  // and avoids exposing attendee diagnostics during normal QR flows.
+   async function migrateUuidToUid(uid) {
+     const storage = getUsableStorage();
+     if (!storage) return;
+     const oldId = storage.getItem(CLIENT_ID_KEY);
+     if (!oldId) return;
+-
+-    // Check if this UUID was already migrated
+-    const alreadyMigrated = await FB.get(`migrations/${oldId.replace(/[.#$/[\]]/g, "_")}`);
+-    if (alreadyMigrated) return;
+-
+-    // Also save the trainer name if present
++    const safeOldId = oldId.replace(/[.#$/[\]]/g, "_");
++
++    const alreadyLinked = await FB.get(`users/${uid}/linkedClientIds/${safeOldId}`);
++    if (alreadyLinked) return;
++
+     const savedName = getSavedTrainerName();
+     if (savedName) {
+       const profile = await FB.get(`users/${uid}`);
+-      if (profile) { if (!profile.trainerName) {
+-        await FB.set(`users/${uid}/trainerName`, savedName);
+-      } }
++      const hasTrainerName = profile ? !!profile.trainerName : false;
++      if (!hasTrainerName) await FB.set(`users/${uid}/trainerName`, savedName);
+     }
+ 
+-    // Write the migration mapping
+-    const safeOldId = oldId.replace(/[.#$/[\]]/g, "_");
+-    await FB.set(`migrations/${safeOldId}`, {
+-      uid: uid,
+-      migratedAt: Date.now(),
+-      oldClientId: oldId,
++    await FB.set(`users/${uid}/linkedClientIds/${safeOldId}`, {
++      linkedAt: Date.now(),
++      clientId: oldId,
+     });
+ 
+     reportIssue("migration", `Linked device ${oldId.slice(0, 12)}... to account ${uid.slice(0, 8)}...`);
+@@ -1165,11 +1161,10 @@
+     const isChecking = authUser === undefined;
+     const flowLabel = flow === "code" ? "code claim" : "giveaway entry";
+     const signedInName = authUser ? (authUser.displayName || "Trainer") : "";
+-    const signedInEmail = authUser ? (authUser.email || "") : "";
+ 
+     if (isSignedIn) {
+       return (
+-        <div style={{ background: c.grassMid + "22", border: `2px solid ${c.grassMid}`, borderRadius: 14, padding: "12px 14px", marginBottom: 16, textAlign: "left" }}>
++        <div style={{ background: c.grassMid + "22", border: `2px solid ${c.grassMid}`, borderRadius: 14, padding: "12px 14px", marginBottom: 14, textAlign: "left" }}>
+           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+             <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
+               {authUser.photoURL ? (
+@@ -1179,25 +1174,22 @@
+               )}
+               <div style={{ minWidth: 0 }}>
+                 <div style={{ fontSize: 13, fontWeight: 700, color: c.ink }}>Signed in as {signedInName}</div>
+-                {signedInEmail ? <div style={{ fontSize: 10, color: c.inkMute, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{signedInEmail}</div> : null}
++                <div style={{ fontSize: 11, color: c.inkSoft }}>Saved to your Garden Grove PoGo profile.</div>
+               </div>
+             </div>
+             {onSignOut ? (
+               <button onClick={onSignOut} style={{ background: "transparent", border: "none", color: c.inkMute, fontSize: 11, fontFamily: "Fredoka, sans-serif", fontWeight: 700, cursor: "pointer", textDecoration: "underline", flexShrink: 0 }}>Sign out</button>
+             ) : null}
+           </div>
+-          <div style={{ fontSize: 11, color: c.inkSoft, lineHeight: 1.45, marginTop: 8 }}>
+-            This {flowLabel} will be connected to your Garden Grove PoGo profile.
+-          </div>
+         </div>
+       );
+     }
+ 
+     return (
+-      <div style={{ background: c.blue + "14", border: `2px solid ${c.blue}`, borderRadius: 14, padding: "12px 14px", marginBottom: 16, textAlign: "left" }}>
+-        <div style={{ fontSize: 13, fontWeight: 700, color: c.ink, marginBottom: 4 }}>Save this to your profile</div>
+-        <div style={{ fontSize: 11, color: c.inkSoft, lineHeight: 1.5, marginBottom: 10 }}>
+-          Sign in with Google before continuing to connect this {flowLabel} to your Garden Grove PoGo profile. Continuing without signing in still works, but this activity will not be saved to your meetup history, code claim history, giveaway entry history, or future passport progress.
++      <div style={{ background: c.blue + "14", border: `2px solid ${c.blue}`, borderRadius: 14, padding: "12px 14px", marginBottom: 14, textAlign: "left" }}>
++        <div style={{ fontSize: 13, fontWeight: 700, color: c.ink, marginBottom: 4 }}>Save your progress</div>
++        <div style={{ fontSize: 11, color: c.inkSoft, lineHeight: 1.45, marginBottom: 10 }}>
++          Sign in to save this {flowLabel} to your profile. Guests can still continue, but profile history and future passport progress will not be saved.
+         </div>
+         {isChecking ? (
+           <div style={{ fontSize: 11, color: c.inkMute, fontWeight: 600 }}>Checking sign-in status...</div>
+@@ -1213,6 +1205,9 @@
+           </StickerBtn>
+         )}
+         {authError ? <div style={{ color: c.strawberry, fontSize: 11, fontWeight: 700, marginTop: 8, textAlign: "center" }}>{authError}</div> : null}
++        <div style={{ fontSize: 10, color: c.inkMute, textAlign: "center", marginTop: 8 }}>
++          <a href="/privacy-policy/" target="_blank" rel="noopener noreferrer" style={{ color: c.blue, fontWeight: 700 }}>Privacy Policy</a>
++        </div>
+       </div>
+     );
+   }
+@@ -1222,6 +1217,12 @@
+     const cleanName = (trainerName || "").trim();
+     if (!cleanName) return false;
+     return FB.set(`users/${authUser.uid}/trainerName`, cleanName);
++  }
++
++  async function loadSavedProfileTrainerName(authUser) {
++    if (!authUser) return "";
++    const profile = await FB.get(`users/${authUser.uid}`);
++    return profile ? (profile.trainerName || "") : "";
+   }
+ 
+   async function recordProfileActivity(authUser, bucket, data) {
+@@ -2309,10 +2310,23 @@
+ 
+     useEffect(() => { check(); }, []);
+ 
++    useEffect(() => {
++      let alive = true;
++      const hasName = !!name.trim();
++      if (!authUser) return undefined;
++      if (hasName) return undefined;
++      (async () => {
++        const profileName = await loadSavedProfileTrainerName(authUser);
++        if (alive) { if (profileName) setName(profileName); }
++      })();
++      return () => { alive = false; };
++    }, [authUser ? authUser.uid : null]);
++
+     const claim = async (skipped) => {
+       const trimmed = name.trim();
+-      if (!trimmed) { if (!skipped) return; }
+-      const claimName = trimmed || "Anonymous";
++      const allowSignedInPrivateClaim = authUser ? true : false;
++      if (!trimmed) { if (!skipped) { if (!allowSignedInPrivateClaim) return; } }
++      const claimName = trimmed || (authUser ? "Signed-in Trainer" : "Anonymous");
+       const sess = await FB.get("cd:session");
+       if (!sess || sess.id !== sessionId) return setStage("nosession");
+       if (sess.paused) return setStage("paused");
+@@ -2448,21 +2462,19 @@
+         <div style={{ display: "inline-flex", alignItems: "center", gap: 6, background: c.blue + "22", color: c.blueDeep, fontSize: 11, fontWeight: 700, padding: "5px 14px", borderRadius: 10, marginBottom: 16 }}>
+           <Icon name="gift" size={14} /> STEP 1 OF 2 · CLAIM YOUR CODE
+         </div>
+-        <h2 style={{ fontFamily: "Fredoka, sans-serif", fontSize: 19, fontWeight: 700, color: c.ink, marginBottom: 6 }}>Enter your trainer name to continue</h2>
+-        <p style={{ color: c.inkSoft, fontSize: 13, marginBottom: 16 }}>This helps the host verify your claim if there's ever a question about it.</p>
++        <h2 style={{ fontFamily: "Fredoka, sans-serif", fontSize: 19, fontWeight: 700, color: c.ink, marginBottom: 12 }}>Claim your code</h2>
+         <OptionalProfileSignInCard c={c} authUser={authUser} authBusy={authBusy} authError={authError} onGoogleSignIn={onGoogleSignIn} onSignOut={onSignOut} flow="code" />
+         <div style={{ textAlign: "left", marginBottom: 6 }}>
+-          <label style={{ fontSize: 12, fontWeight: 700, color: c.inkSoft }}>Trainer name</label>
+-        </div>
+-        <input value={name} onChange={e => setName(e.target.value)} onKeyDown={e => { if (e.key === "Enter") claim(); }} placeholder="e.g. Ash Ketchum" style={{ textAlign: "left", fontSize: 16, marginBottom: 14, width: "100%", boxSizing: "border-box" }} maxLength={32} />
+-        <StickerBtn fill={c.grassMid} shadow={c.grassDeep} disabled={!name.trim()} onClick={() => claim(false)} style={{ width: "100%", fontSize: 16, padding: 14, marginBottom: 18 }}>
++          <label style={{ fontSize: 12, fontWeight: 700, color: c.inkSoft }}>Public trainer name</label>
++          <div style={{ fontSize: 11, color: c.inkMute, marginTop: 2 }}>Optional if signed in. The host may use this to verify your claim.</div>
++        </div>
++        <input value={name} onChange={e => setName(e.target.value)} onKeyDown={e => { if (e.key === "Enter") claim(false); }} placeholder="e.g. AshK" style={{ textAlign: "left", fontSize: 16, marginBottom: 14, width: "100%", boxSizing: "border-box" }} maxLength={32} />
++        <StickerBtn fill={c.grassMid} shadow={c.grassDeep} disabled={authUser ? false : !name.trim()} onClick={() => claim(false)} style={{ width: "100%", fontSize: 16, padding: 14, marginBottom: 12 }}>
+           Claim my code
+         </StickerBtn>
+-        <p style={{ fontSize: 11, color: c.inkMute, marginBottom: 8, lineHeight: 1.4 }}>Skipping claims a code anonymously. We'll remember a name you enter on this device for next time.</p>
+         <button onClick={() => claim(true)} style={{ background: "none", border: "none", color: c.inkMute, fontSize: 12, fontWeight: 600, cursor: "pointer", textDecoration: "underline", padding: 0 }}>
+-          Skip — claim anonymously
++          {authUser ? "Claim without public name" : "Claim anonymously"}
+         </button>
+-        <p style={{ fontSize: 11, color: c.inkMute, marginTop: 14 }}>We'll remember your name on this device for next time — you can change it anytime by editing it above.</p>
+       </Paper>
+     );
+ 
+@@ -2548,6 +2560,18 @@
+     };
+ 
+     useEffect(() => { check(); }, []);
++
++    useEffect(() => {
++      let alive = true;
++      const hasName = !!name.trim();
++      if (!authUser) return undefined;
++      if (hasName) return undefined;
++      (async () => {
++        const profileName = await loadSavedProfileTrainerName(authUser);
++        if (alive) { if (profileName) setName(profileName); }
++      })();
++      return () => { alive = false; };
++    }, [authUser ? authUser.uid : null]);
+ 
+     // Real-time listener: once entered, watch only THIS attendee's entrant
+     // node for win status changes. Scoping to a single node (rather than
+@@ -2655,19 +2679,18 @@
+         <div style={{ display: "inline-flex", alignItems: "center", gap: 6, background: c.strawberry + "22", color: c.strawDeep, fontSize: 11, fontWeight: 700, padding: "5px 14px", borderRadius: 10, marginBottom: 16 }}>
+           <Icon name="gift" size={14} /> STEP 1 OF 2 · ENTER THE GIVEAWAY
+         </div>
+-        <h2 style={{ fontFamily: "Fredoka, sans-serif", fontSize: 19, fontWeight: 700, color: c.ink, marginBottom: 6 }}>Enter your trainer name to continue</h2>
+-        <p style={{ color: c.inkSoft, fontSize: 13, marginBottom: 16 }}>This is the name the host will call out if you win.</p>
++        <h2 style={{ fontFamily: "Fredoka, sans-serif", fontSize: 19, fontWeight: 700, color: c.ink, marginBottom: 12 }}>Enter the giveaway</h2>
+         <OptionalProfileSignInCard c={c} authUser={authUser} authBusy={authBusy} authError={authError} onGoogleSignIn={onGoogleSignIn} onSignOut={onSignOut} flow="giveaway" />
+         <div style={{ textAlign: "left", marginBottom: 6 }}>
+-          <label style={{ fontSize: 12, fontWeight: 700, color: c.inkSoft }}>Trainer name</label>
+-        </div>
+-        <input value={name} onChange={e => setName(e.target.value)} onKeyDown={e => { if (e.key === "Enter") enter(); }} placeholder="e.g. Ash Ketchum" style={{ textAlign: "left", fontSize: 16, marginBottom: 14, width: "100%", boxSizing: "border-box" }} maxLength={32} />
+-        <StickerBtn fill={c.strawberry} shadow={c.strawDeep} disabled={!name.trim()} onClick={() => enter(false)} style={{ width: "100%", fontSize: 16, padding: 14, marginBottom: 18 }}>
++          <label style={{ fontSize: 12, fontWeight: 700, color: c.inkSoft }}>Public trainer name</label>
++          <div style={{ fontSize: 11, color: c.inkMute, marginTop: 2 }}>This is what the host will call out if you win.</div>
++        </div>
++        <input value={name} onChange={e => setName(e.target.value)} onKeyDown={e => { if (e.key === "Enter") enter(false); }} placeholder="e.g. AshK" style={{ textAlign: "left", fontSize: 16, marginBottom: 14, width: "100%", boxSizing: "border-box" }} maxLength={32} />
++        <StickerBtn fill={c.strawberry} shadow={c.strawDeep} disabled={!name.trim()} onClick={() => enter(false)} style={{ width: "100%", fontSize: 16, padding: 14, marginBottom: 12 }}>
+           Enter Giveaway
+         </StickerBtn>
+-        <p style={{ fontSize: 11, color: c.inkMute, marginBottom: 8, lineHeight: 1.4 }}>Skipping assigns you a ticket number the host can call instead. We'll remember a name you enter on this device for next time.</p>
+         <button onClick={() => enter(true)} style={{ background: "none", border: "none", color: c.inkMute, fontSize: 12, fontWeight: 600, cursor: "pointer", textDecoration: "underline", padding: 0 }}>
+-          Skip — enter anonymously
++          Use a ticket number instead
+         </button>
+       </Paper>
+     );
+@@ -4647,9 +4670,10 @@
+   // corner of the app so hosts can see recent Firebase errors
+   // without opening devtools.
+   // ───────────────────────────────────────────────────────────
+-  function DiagnosticsPanel() {
++  function DiagnosticsPanel({ enabled = true }) {
+     const log = useDiagnostics();
+     const [open, setOpen] = useState(false);
++    if (!enabled) return null;
+     if (log.length === 0) return null;
+     return (
+       <div style={{ position: "fixed", bottom: 12, right: 12, zIndex: 9999, fontFamily: "Fredoka, sans-serif" }}>
+@@ -4677,7 +4701,7 @@
+   // Bump this with every release so the live page always shows what's
+   // actually deployed — no more guessing whether a paste went through,
+   // or which version is live when reporting a field issue.
+-  const APP_VERSION = "v2.12.13";
++  const APP_VERSION = "v2.12.14";
+ 
+   function VersionFooter() {
+     return (
+@@ -4685,6 +4709,12 @@
+         {APP_VERSION}
+       </div>
+     );
++  }
++
++  function shouldShowDiagnostics(isHost) {
++    if (isHost) return true;
++    try { return new URLSearchParams(window.location.search).get("debug") === "1"; }
++    catch (e) { return false; }
+   }
+ 
+   // ───────────────────────────────────────────────────────────
+@@ -4794,6 +4824,7 @@
+       background: c.bgImage ? (!bgFailed ? `url(${c.bgImage}) center/cover no-repeat` : c.grassMid) : c.grassMid,
+       fontFamily: "Fredoka, sans-serif",
+     };
++    const showDiagnostics = shouldShowDiagnostics(isHost);
+ 
+     // Age gate overlay — must come before direct QR routes so a user
+     // who taps Google sign-in from a claim/join page can complete the
+@@ -4802,7 +4833,7 @@
+       return (
+         <div style={pageStyle}>
+           <AgeGate c={c} onConfirm={confirmAge} onCancel={() => setShowAgeGate(false)} />
+-          <DiagnosticsPanel /><VersionFooter />
++          <DiagnosticsPanel enabled={showDiagnostics} /><VersionFooter />
+         </div>
+       );
+     }
+@@ -4810,18 +4841,18 @@
+     // Public attendee claim flow — accessible to guests, but now receives
+     // auth state/handlers so the page can offer optional Google sign-in.
+     if (claimSession) {
+-      return <div style={pageStyle}><CodeClaim c={c} sessionId={claimSession} authUser={authUser} onGoogleSignIn={startGoogleSignIn} onSignOut={signOutCommunity} authBusy={authBusy} authError={authError} /><DiagnosticsPanel /><VersionFooter /></div>;
++      return <div style={pageStyle}><CodeClaim c={c} sessionId={claimSession} authUser={authUser} onGoogleSignIn={startGoogleSignIn} onSignOut={signOutCommunity} authBusy={authBusy} authError={authError} /><DiagnosticsPanel enabled={showDiagnostics} /><VersionFooter /></div>;
+     }
+ 
+     // Public giveaway entry flow — accessible to guests, but now receives
+     // auth state/handlers so the page can offer optional Google sign-in.
+     if (joinSession) {
+-      return <div style={pageStyle}><GiveawayClaim c={c} sessionId={joinSession} authUser={authUser} onGoogleSignIn={startGoogleSignIn} onSignOut={signOutCommunity} authBusy={authBusy} authError={authError} /><DiagnosticsPanel /><VersionFooter /></div>;
++      return <div style={pageStyle}><GiveawayClaim c={c} sessionId={joinSession} authUser={authUser} onGoogleSignIn={startGoogleSignIn} onSignOut={signOutCommunity} authBusy={authBusy} authError={authError} /><DiagnosticsPanel enabled={showDiagnostics} /><VersionFooter /></div>;
+     }
+ 
+     // Auth check in progress
+     if (authUser === undefined) {
+-      return <div style={pageStyle}><CenterMsg c={c} text="Loading..." /><DiagnosticsPanel /><VersionFooter /></div>;
++      return <div style={pageStyle}><CenterMsg c={c} text="Loading..." /><DiagnosticsPanel enabled={showDiagnostics} /><VersionFooter /></div>;
+     }
+ 
+     const showHome = view === "home";
+@@ -4842,7 +4873,7 @@
+         {showGiveaway ? <GiveawayApp setView={setView} c={c} /> : null}
+         {showBranding ? <BrandingSettings c={c} setView={setView} /> : null}
+         {showStats ? <MeetupStatsApp c={c} setView={setView} /> : null}
+-        <DiagnosticsPanel />
++        <DiagnosticsPanel enabled={showDiagnostics} />
+         <VersionFooter />
+       </div>
+     );

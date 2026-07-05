@@ -1,0 +1,1714 @@
+/* ============================================================
+   GGPoGo.com — Site-Wide Stylesheet
+   Version: 1.5.0
+   Last updated: 2026-07-02
+
+   FULL REPLACEMENT. Paste this entire file into
+   Appearance → Customize → Additional CSS, replacing whatever
+   is there. Then Publish.
+
+   Full historical changelog: see ggpogo-site-styles-CHANGELOG.md
+   (companion file). This header lists only the latest version.
+
+   1.5.0 — Site title wordmark styling. Was plain default sans-
+           serif with no color. Now: Fredoka font, 600 weight,
+           1.35rem (was default browser size, ~1rem-ish), brand
+           blue (--gg-blue), subtle hover to --gg-blue-deep.
+
+           Scoped note: a true multi-color split ("GG" blue /
+           "PoGo" navy / ".com" green, as shown in the design
+           mockup) is NOT deliverable via CSS alone — WordPress
+           renders Site Title as one plain-text string with no
+           per-word spans, so there's nothing for color rules to
+           target individually. Shipped single-color instead
+           rather than a rule that silently can't do what it
+           claims. A true multi-tone version would need a child-
+           theme template edit or a small JS wrap script, not a
+           stylesheet change — flag if that's wanted later.
+
+           Mobile-scoped 1.1rem override (set in v1.4.8, Section
+           26) still applies on top of this and is unaffected.
+
+   Stack: Astra theme + WordPress block editor
+   Fonts: Fredoka (headings) · Nunito (body)
+   Palette: Blue #1FA5DC · Green #7DC25C · Orange #F08838
+            Sun #F5C842 · Paper #FFFCF2 · Ink #0D2D52
+
+   Color roles (locked):
+     Blue   — primary interactive, links, "brand/identity" pages
+     Green  — community/positive accent, "action" pages
+     Orange — Campfire, "reference/connection" pages, highlights
+     Sun    — tip boxes and small highlights ONLY
+     Paper  — page backgrounds and card surfaces
+     Ink    — body text, headings
+   ============================================================ */
+
+
+/* ===================
+   1. FONTS
+   =================== */
+@import url('https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&family=Nunito:wght@400;500;600;700&display=swap');
+
+
+/* ===================
+   2. CSS VARIABLES
+   Includes overrides for Astra's container width variable.
+   =================== */
+:root {
+  --gg-blue:        #1FA5DC;
+  --gg-blue-deep:   #0E5C9E;
+  --gg-green:       #7DC25C;
+  --gg-green-deep:  #3F8A36;
+  --gg-orange:      #F08838;
+  --gg-orange-deep: #C45A1F;
+  --gg-sun:         #F5C842;
+  --gg-paper:       #FFFCF2;
+  --gg-paper-dim:   #F5EFDC;
+  --gg-paper-edge:  #E8DEC0;
+  --gg-ink:         #0D2D52;
+  --gg-ink-soft:    #3D5B82;
+  --gg-ink-mute:    #7A8FA8;
+  --gg-radius:      16px;
+  --gg-radius-sm:   10px;
+  --gg-radius-pill: 50px;
+
+  --gg-content-max: 1200px;
+
+  --gg-header-gradient: linear-gradient(
+    135deg,
+    var(--gg-green) 0%,
+    var(--gg-blue) 100%
+  );
+
+  /* Override Astra's container width — affects every .ast-container */
+  --ast-container-max-width: 1200px !important;
+  --ast-content-width: 1200px !important;
+}
+
+
+/* ===================
+   3. GLOBAL TYPOGRAPHY
+   =================== */
+body,
+.ast-single-post .entry-content,
+p, li, td {
+  font-family: 'Nunito', sans-serif;
+  color: var(--gg-ink-soft);
+}
+
+h1, h2, h3, h4, h5, h6,
+.entry-title,
+.wp-block-heading,
+.site-title,
+.ast-site-name-wrap {
+  font-family: 'Fredoka', 'Nunito', sans-serif !important;
+  font-weight: 500;
+  color: var(--gg-ink);
+  letter-spacing: 0.01em;
+}
+
+/* Site title wordmark — styled brand treatment (v1.5.0).
+   Fredoka font, bold weight, brand blue, size bump. Single solid
+   color rather than the three-tone split shown in the mockup —
+   WordPress renders Site Title as one plain-text string inside
+   <a>, with no separate spans per word, so CSS alone can't color
+   "GG" / "PoGo" / ".com" differently without editing the Site
+   Identity output itself (a theme/child-theme change, not CSS).
+   Flagging this now rather than shipping a rule that can't
+   actually render the three-tone look. */
+.site-title a,
+.ast-site-title-wrap .site-title a {
+  font-family: 'Fredoka', 'Nunito', sans-serif !important;
+  font-weight: 600 !important;
+  font-size: 1.35rem !important;
+  color: var(--gg-blue) !important;
+  letter-spacing: 0.01em !important;
+  text-decoration: none !important;
+  transition: color 0.15s ease !important;
+}
+
+.site-title a:hover {
+  color: var(--gg-blue-deep) !important;
+}
+
+
+/* ===================
+   4. PAGE BACKGROUND
+   =================== */
+body,
+#page,
+.site-content,
+.ast-page-builder-template,
+.entry-content {
+  background-color: var(--gg-paper) !important;
+}
+
+
+/* ===================
+   5. CONTENT WIDTH (site-wide, contained to 1200px)
+   Aggressive overrides — target the actual elements Astra uses
+   for content wrapping, including the new variable approach.
+   =================== */
+
+/* Body content containers */
+.entry-content,
+.ast-container,
+.site-content > .ast-container {
+  max-width: var(--gg-content-max) !important;
+  margin-left: auto !important;
+  margin-right: auto !important;
+}
+
+/* Override Gutenberg full/wide alignments */
+.entry-content > .alignfull,
+.entry-content > .alignwide {
+  max-width: var(--gg-content-max) !important;
+  margin-left: auto !important;
+  margin-right: auto !important;
+  width: auto !important;
+}
+
+
+/* ===================
+   5b. LOGO SIZE
+   Confirmed via DOM inspector: img.custom-logo computed to
+   120x120px (locked by inline width/height attributes AND a
+   max-width:120px/width:120px rule). This — not header padding
+   — was the actual cause of header height. Shrinking the logo
+   is what shortens the header; padding tweaks alone cannot.
+   =================== */
+header .custom-logo-link img,
+.site-logo-img img,
+img.custom-logo {
+  width: 68px !important;
+  height: 68px !important;
+  max-width: 68px !important;
+}
+
+
+/* ===================
+   6. SITE HEADER — WHITE BAND (FULL WIDTH), CONTAINED CONTENT
+   The white background extends edge-to-edge across the browser.
+   Only the INNER content row (.ast-builder-grid-row) is
+   constrained to 1200px.
+
+   bgwave is NOT applied here as of 1.4.4 — confirmed via the
+   actual image file that it's a tall portrait full-bleed
+   graphic, not a thin strip texture. Squashing it into an 80px
+   band always looked like a smear. It's now layered behind
+   .gg-page-header's gradient instead (see section 10).
+   =================== */
+
+/* OUTER header elements — keep them ALL full-width and white. */
+.site-header,
+#masthead,
+.main-header-bar-wrap,
+.main-header-bar,
+.site-primary-header-wrap,
+.ast-builder-grid-row-container {
+  background-color: #fff !important;
+  width: 100% !important;
+  max-width: none !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+
+/* The actual visible header band — plain white, clean edge. */
+.site-header,
+#masthead {
+  border-bottom: 2px solid var(--gg-paper-edge) !important;
+  box-shadow: 0 2px 12px rgba(13, 45, 82, 0.04) !important;
+  position: relative !important;
+  overflow: visible !important;
+}
+
+/* Lift all header content (kept from 1.4.3 for stacking safety,
+   harmless now that there's no overlay beneath it) */
+.site-header > *,
+.site-primary-header-wrap,
+.ast-main-header-wrap {
+  position: relative !important;
+  z-index: 1 !important;
+}
+
+/* INNER content row — THIS is what's constrained to 1200px,
+   not the outer header. Targets the actual flex row that
+   holds the logo section + nav section. */
+.site-header .ast-builder-grid-row,
+.ast-builder-grid-row,
+.site-header .main-header-bar .ast-flex,
+.main-header-bar > .ast-container {
+  max-width: var(--gg-content-max) !important;
+  margin-left: auto !important;
+  margin-right: auto !important;
+  padding-left: 1.5rem !important;
+  padding-right: 1.5rem !important;
+  width: 100% !important;
+  box-sizing: border-box !important;
+}
+
+/* Tighten vertical padding aggressively to reduce header height */
+.ast-primary-header-bar,
+.main-header-bar,
+.main-header-bar-wrap,
+.ast-main-header-bar-alignment,
+.site-primary-header-wrap,
+.ast-builder-grid-row-container {
+  padding-top: 6px !important;
+  padding-bottom: 0 !important;
+  min-height: 0 !important;
+}
+
+/* Force bottom alignment on header sections so tabs sit at baseline */
+.site-header-primary-section-left,
+.site-header-primary-section-center,
+.site-header-primary-section-right,
+.site-header-section-left,
+.site-header-section-center,
+.site-header-section-right,
+.ast-builder-grid-row {
+  align-items: flex-end !important;
+}
+
+.site-header-primary-section-right .ast-builder-menu,
+.site-header-section-right .ast-builder-menu,
+.ast-builder-menu-1,
+.ast-builder-menu-mobile {
+  align-items: flex-end !important;
+  display: flex !important;
+}
+
+/* Safety net for 1.4.4's flex-wrap: nowrap — on narrower desktop
+   widths (laptops, not phones; mobile uses the hamburger menu
+   separately) tighten tab padding/font slightly rather than let
+   6 nowrap tabs overflow off-screen. */
+@media (max-width: 1100px) and (min-width: 769px) {
+  .main-header-menu .menu-item > a,
+  .main-header-bar-navigation .menu-item > a {
+    padding: 8px 12px 10px !important;
+    font-size: 13px !important;
+  }
+}
+
+
+/* ===================
+   7. SITE NAVIGATION — FOLDER TABS
+   Manila folder tabs with colored top stripes per item.
+
+   Requires CSS classes on menu items (Appearance → Menus →
+   click item → CSS Classes):
+     Home          → nav-home
+     Events        → nav-events
+     Resources     → nav-resources
+     About         → nav-about
+     Event Tools   → nav-eventtools
+     Contact       → nav-contact
+     Map           → nav-map
+
+   Stripe colors (grouped by purpose):
+     Brand/identity (Home, About)              → blue
+     Action (Events, Event Tools)              → green
+     Reference/connection (Resources, Contact, Map) → orange
+   =================== */
+
+/* Menu container — bottom-align tabs.
+   flex-wrap: nowrap added in 1.4.4 — confirmed via DOM inspector
+   that Astra renders nav into a "no-center" 2-section grid with
+   ALL menu items sharing the right-hand section. Without an
+   explicit nowrap, 6 tabs at full padding/font-size will wrap
+   ("Contact" dropping to a second row) once that section's
+   natural width is exceeded. */
+.main-header-menu,
+.main-navigation ul,
+.ast-builder-menu > .menu,
+.main-header-bar-navigation .menu,
+nav.site-navigation > div > ul {
+  align-items: flex-end !important;
+  display: flex !important;
+  flex-wrap: nowrap !important;
+  gap: 2px !important;
+  padding: 0 !important;
+  margin: 0 !important;
+}
+
+/* Each menu item is a tab */
+.main-header-menu .menu-item,
+.main-header-bar-navigation .menu-item {
+  position: relative !important;
+  margin: 0 !important;
+  list-style: none !important;
+  z-index: 1 !important;
+}
+
+/* Tab body — anchored to baseline, no top-based lift */
+.main-header-menu .menu-item > a,
+.main-header-bar-navigation .menu-item > a,
+.ast-header-break-point .main-header-menu .menu-item > a {
+  font-family: 'Fredoka', sans-serif !important;
+  font-weight: 500 !important;
+  font-size: 14px !important;
+  color: var(--gg-ink) !important;
+  letter-spacing: 0.02em !important;
+  line-height: 1.2 !important;
+
+  display: block !important;
+  background: var(--gg-paper-dim) !important;
+  border: 1px solid var(--gg-paper-edge) !important;
+  border-bottom: none !important;
+  border-radius: 10px 10px 0 0 !important;
+  padding: 8px 18px 10px !important;
+  margin-bottom: -2px !important;
+  top: 0 !important;
+  position: relative !important;
+  transition: background 0.15s ease, padding 0.15s ease, color 0.15s ease !important;
+  box-shadow: 0 -1px 3px rgba(13, 45, 82, 0.04) !important;
+  text-decoration: none !important;
+}
+
+/* Colored top stripe — sits along the top edge of the tab */
+.main-header-menu .menu-item > a::before,
+.main-header-bar-navigation .menu-item > a::before {
+  content: '' !important;
+  position: absolute !important;
+  top: 0 !important;
+  left: 10px !important;
+  right: 10px !important;
+  height: 3px !important;
+  border-radius: 2px 2px 0 0 !important;
+  background: var(--gg-blue);
+  transition: height 0.15s ease;
+}
+
+/* Hover — grow upward via padding, no float */
+.main-header-menu .menu-item > a:hover,
+.main-header-bar-navigation .menu-item > a:hover {
+  background: #fff !important;
+  color: var(--gg-blue) !important;
+  top: 0 !important;
+  padding: 10px 18px 10px !important;
+  z-index: 2 !important;
+}
+
+.main-header-menu .menu-item > a:hover::before,
+.main-header-bar-navigation .menu-item > a:hover::before {
+  height: 4px !important;
+}
+
+/* Active tab — tallest, paper-cream, merges into body */
+.main-header-menu .current-menu-item > a,
+.main-header-bar-navigation .current-menu-item > a,
+.main-header-menu .current_page_item > a,
+.main-header-bar-navigation .current_page_item > a {
+  background: var(--gg-paper) !important;
+  border-color: var(--gg-paper-edge) !important;
+  top: 0 !important;
+  padding: 12px 18px 12px !important;
+  margin-bottom: -3px !important;
+  box-shadow: 0 -3px 8px rgba(13, 45, 82, 0.05) !important;
+  z-index: 3 !important;
+  color: var(--gg-ink) !important;
+}
+
+.main-header-menu .current-menu-item > a::before,
+.main-header-bar-navigation .current-menu-item > a::before,
+.main-header-menu .current_page_item > a::before,
+.main-header-bar-navigation .current_page_item > a::before {
+  height: 4px !important;
+}
+
+/* Per-tab stripe colors — grouped by purpose */
+.main-header-menu .nav-home > a::before,
+.main-header-bar-navigation .nav-home > a::before,
+.main-header-menu .nav-about > a::before,
+.main-header-bar-navigation .nav-about > a::before {
+  background: var(--gg-blue) !important;
+}
+
+.main-header-menu .nav-events > a::before,
+.main-header-bar-navigation .nav-events > a::before,
+.main-header-menu .nav-eventtools > a::before,
+.main-header-bar-navigation .nav-eventtools > a::before {
+  background: var(--gg-green) !important;
+}
+
+.main-header-menu .nav-resources > a::before,
+.main-header-bar-navigation .nav-resources > a::before,
+.main-header-menu .nav-contact > a::before,
+.main-header-bar-navigation .nav-contact > a::before,
+.main-header-menu .nav-map > a::before,
+.main-header-bar-navigation .nav-map > a::before {
+  background: var(--gg-orange) !important;
+}
+
+/* Hover color matches the tab's stripe color */
+.main-header-menu .nav-events > a:hover,
+.main-header-menu .nav-eventtools > a:hover,
+.main-header-bar-navigation .nav-events > a:hover,
+.main-header-bar-navigation .nav-eventtools > a:hover {
+  color: var(--gg-green-deep) !important;
+}
+
+.main-header-menu .nav-resources > a:hover,
+.main-header-menu .nav-contact > a:hover,
+.main-header-bar-navigation .nav-resources > a:hover,
+.main-header-bar-navigation .nav-contact > a:hover,
+.main-header-menu .nav-map > a:hover,
+.main-header-bar-navigation .nav-map > a:hover {
+  color: var(--gg-orange-deep) !important;
+}
+
+
+/* ===================
+   8. COVER BLOCKS (general defaults)
+   =================== */
+.wp-block-cover {
+  border-radius: 0 0 var(--gg-radius) var(--gg-radius);
+  overflow: hidden;
+}
+
+.wp-block-cover__inner-container {
+  text-align: center !important;
+  display: flex;
+  flex-direction: column;
+  align-items: center !important;
+  justify-content: center !important;
+}
+
+.wp-block-cover h1,
+.wp-block-cover h2,
+.wp-block-cover p {
+  text-align: center !important;
+}
+
+
+/* ===================
+   9. BUTTONS
+   =================== */
+.wp-block-button__link,
+.wp-block-buttons .wp-block-button__link {
+  font-family: 'Fredoka', sans-serif !important;
+  font-weight: 500 !important;
+  font-size: 16px !important;
+  border-radius: var(--gg-radius-pill) !important;
+  padding: 0.55em 1.6em !important;
+  letter-spacing: 0.02em;
+  transition: transform 0.15s, box-shadow 0.15s !important;
+}
+
+.wp-block-button__link:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(13, 45, 82, 0.15) !important;
+}
+
+
+/* ===================
+   10. UNIFIED PAGE HEADER (gg-page-header)
+   Apply to a Cover block:
+     Home                   → gg-page-header gg-page-header--tall
+     Events, Resources,
+     About, Contact,
+     Event Tools            → gg-page-header gg-page-header--short
+   =================== */
+
+.gg-page-header {
+  background: var(--gg-header-gradient) !important;
+  border-radius: var(--gg-radius) !important;
+  margin: 1.5rem auto 2rem !important;
+  max-width: var(--gg-content-max) !important;
+  overflow: hidden !important;
+  position: relative;
+}
+
+/* bgwave — reintroduced in 1.4.4 as a subtle full-bleed texture
+   layer behind the gradient, not as a thin header strip (that
+   approach is removed — see section 6). The image is a tall
+   portrait graphic, so it's shown at its natural proportions via
+   background-size: cover, low opacity so the green->blue
+   gradient stays visually dominant on top. Sits behind ::after's
+   content via z-index: 0; .wp-block-cover__inner-container
+   (the actual heading/text) is a normal in-flow child and
+   renders above both. */
+.gg-page-header::before {
+  content: '' !important;
+  position: absolute !important;
+  inset: 0 !important;
+  background-image: url('https://ggpogo.com/wp-content/uploads/2026/04/bg-wave.png') !important;
+  background-size: cover !important;
+  background-position: center !important;
+  background-repeat: no-repeat !important;
+  opacity: 0.14 !important;
+  mix-blend-mode: overlay !important;
+  pointer-events: none !important;
+  z-index: 0 !important;
+}
+
+.gg-page-header .wp-block-cover__inner-container {
+  position: relative !important;
+  z-index: 1 !important;
+}
+
+.gg-page-header .wp-block-cover__background,
+.gg-page-header .has-background-dim {
+  display: none !important;
+}
+
+.gg-page-header .wp-block-cover__inner-container {
+  margin: 0 auto !important;
+  max-width: 720px !important;
+}
+
+.gg-page-header h1,
+.gg-page-header h2,
+.gg-page-header .wp-block-heading {
+  color: #fff !important;
+  font-family: 'Fredoka', sans-serif !important;
+  font-weight: 600 !important;
+  line-height: 1.15 !important;
+  text-align: center !important;
+}
+
+.gg-page-header p {
+  color: rgba(255, 255, 255, 0.85) !important;
+  line-height: 1.6 !important;
+  text-align: center !important;
+}
+
+/* TALL — homepage */
+.gg-page-header--tall {
+  min-height: 520px !important;
+  padding: 4rem 2rem 3rem !important;
+}
+
+.gg-page-header--tall h1 {
+  font-size: 2.8rem !important;
+  margin-bottom: 1.25rem !important;
+}
+
+.gg-page-header--tall p {
+  font-size: 1.1rem !important;
+  max-width: 480px !important;
+  margin: 0 auto 0.5rem !important;
+}
+
+.gg-page-header--tall .wp-block-buttons {
+  justify-content: center !important;
+  margin: 1.5rem 0 2rem !important;
+}
+
+.gg-page-header--tall .wp-block-button__link {
+  font-size: 16px !important;
+  padding: 0.7em 2em !important;
+}
+
+/* SHORT — every other page */
+.gg-page-header--short {
+  min-height: 200px !important;
+  padding: 2.5rem 2rem !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+}
+
+.gg-page-header--short h1 {
+  font-size: 2.2rem !important;
+  margin-bottom: 0.5rem !important;
+}
+
+.gg-page-header--short p {
+  font-size: 1rem !important;
+  max-width: 460px !important;
+  margin: 0 auto !important;
+}
+
+
+/* ===================
+   11. SECTION LABEL (gg-section-label)
+   Uppercase small-caps, site-wide.
+   =================== */
+.gg-section-label {
+  font-family: 'Fredoka', sans-serif !important;
+  font-size: 13px !important;
+  font-weight: 500 !important;
+  color: var(--gg-ink-mute) !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.08em !important;
+  margin: 2rem 0 12px !important;
+  padding-left: 4px !important;
+}
+
+/* Legacy aliases — Resources `gg-res-label` and Events-page
+   local class names map to the same look */
+.gg-res-label,
+.gg-recur-heading,
+.gg-cal-heading {
+  font-family: 'Fredoka', sans-serif !important;
+  font-size: 13px !important;
+  font-weight: 500 !important;
+  color: var(--gg-ink-mute) !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.08em !important;
+  margin: 2rem 0 12px !important;
+  padding-left: 4px !important;
+  display: block !important;
+}
+
+/* Hide the small icon next to "Full calendar" — labels are icon-free */
+.gg-cal-heading svg {
+  display: none !important;
+}
+
+
+/* ===================
+   12. CTA BANDS (gg-cta-band)
+   Two variants for page-closing CTAs:
+     gg-cta-band--green  → join actions
+     gg-cta-band--blue   → explore actions
+   =================== */
+.gg-cta-band {
+  border-radius: var(--gg-radius) !important;
+  padding: 2rem !important;
+  text-align: center !important;
+  margin: 2.5rem auto !important;
+  max-width: var(--gg-content-max) !important;
+}
+
+.gg-cta-band h2,
+.gg-cta-band .wp-block-heading {
+  font-family: 'Fredoka', sans-serif !important;
+  font-size: 1.4rem !important;
+  font-weight: 500 !important;
+  color: var(--gg-ink) !important;
+  margin: 0 0 0.5rem !important;
+  text-align: center !important;
+}
+
+.gg-cta-band p {
+  font-size: 14px !important;
+  color: var(--gg-ink-soft) !important;
+  margin: 0 auto 1.25rem !important;
+  max-width: 480px;
+  line-height: 1.5;
+  text-align: center !important;
+}
+
+.gg-cta-band .wp-block-buttons {
+  justify-content: center !important;
+  margin-top: 0.5rem !important;
+}
+
+.gg-cta-band--green {
+  background: linear-gradient(
+    135deg,
+    rgba(125, 194, 92, 0.15) 0%,
+    rgba(31, 165, 220, 0.08) 100%
+  ) !important;
+  border: 1.5px solid rgba(125, 194, 92, 0.25) !important;
+}
+
+.gg-cta-band--blue {
+  background: linear-gradient(
+    135deg,
+    rgba(31, 165, 220, 0.12) 0%,
+    rgba(14, 92, 158, 0.08) 100%
+  ) !important;
+  border: 1.5px solid rgba(31, 165, 220, 0.25) !important;
+}
+
+/* Legacy alias — Events page local CTA class */
+.gg-events-cta {
+  background: linear-gradient(
+    135deg,
+    rgba(125, 194, 92, 0.15) 0%,
+    rgba(31, 165, 220, 0.08) 100%
+  ) !important;
+  border: 1.5px solid rgba(125, 194, 92, 0.25) !important;
+  border-radius: var(--gg-radius) !important;
+  padding: 2rem !important;
+  text-align: center !important;
+  margin: 2.5rem auto !important;
+  max-width: var(--gg-content-max) !important;
+}
+
+.gg-events-cta h3 {
+  font-family: 'Fredoka', sans-serif !important;
+  font-size: 1.4rem !important;
+  font-weight: 500 !important;
+  color: var(--gg-ink) !important;
+  margin: 0 0 0.5rem !important;
+}
+
+.gg-events-cta p {
+  font-size: 14px !important;
+  color: var(--gg-ink-soft) !important;
+  margin: 0 auto 1.25rem !important;
+  max-width: 480px !important;
+  line-height: 1.5 !important;
+}
+
+
+/* ===================
+   13. ICON CIRCLE (gg-card-icon)
+   Canonical icon-in-tinted-circle pattern.
+   Wrap emoji, <img>, or inline SVG inside an element with
+   class `gg-card-icon` plus a color modifier.
+   =================== */
+.gg-card-icon {
+  width: 44px !important;
+  height: 44px !important;
+  min-width: 44px !important;
+  border-radius: 50% !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  margin: 0 auto 12px !important;
+  font-size: 22px !important;
+  line-height: 1 !important;
+  flex-shrink: 0 !important;
+}
+
+.gg-card-icon img {
+  width: 24px !important;
+  height: 24px !important;
+  border-radius: 0 !important;
+}
+
+/* Inline SVG icons inside the circle */
+.gg-card-icon svg {
+  width: 22px !important;
+  height: 22px !important;
+  display: block !important;
+  fill: currentColor;
+  stroke: currentColor;
+}
+
+/* Color modifiers */
+.gg-card-icon--blue       { background: rgba(31, 165, 220, 0.15); color: var(--gg-blue); }
+.gg-card-icon--green      { background: rgba(125, 194, 92, 0.18); color: var(--gg-green-deep); }
+.gg-card-icon--orange     { background: rgba(240, 136, 56, 0.15); color: var(--gg-orange-deep); }
+.gg-card-icon--gold       { background: rgba(245, 200, 66, 0.20); color: #B8911E; }
+.gg-card-icon--discord    { background: rgba(88, 101, 242, 0.15); color: #5865F2; }
+.gg-card-icon--instagram  { background: rgba(225, 48, 108, 0.12); color: #E1306C; }
+.gg-card-icon--campfire   { background: rgba(240, 136, 56, 0.20); color: var(--gg-orange-deep); }
+
+
+/* ===================
+   13b. MAP EMBED CARD (gg-map-card)
+   Used on the /map page only. Wraps the Google My Maps iframe
+   in the standard paper-card surface, with an "Open Full Map"
+   pill button and a 3-up info grid built from gg-card-icon.
+   =================== */
+.gg-map-card {
+  background: var(--gg-paper) !important;
+  border: 2px solid var(--gg-paper-edge) !important;
+  border-radius: var(--gg-radius) !important;
+  padding: clamp(14px, 3vw, 22px) !important;
+  box-shadow: 0 16px 32px rgba(13, 45, 82, 0.12) !important;
+  max-width: var(--gg-content-max) !important;
+  margin: 0 auto 2rem !important;
+}
+
+.gg-map-card-header {
+  display: flex !important;
+  justify-content: space-between !important;
+  align-items: center !important;
+  gap: 16px !important;
+  margin-bottom: 16px !important;
+  flex-wrap: wrap !important;
+}
+
+.gg-map-card-header h2 {
+  margin: 0 0 4px !important;
+  color: var(--gg-ink) !important;
+  font-family: 'Fredoka', sans-serif !important;
+  font-size: clamp(1.3rem, 3vw, 1.7rem) !important;
+  font-weight: 500 !important;
+}
+
+.gg-map-card-header p {
+  margin: 0 !important;
+  color: var(--gg-ink-mute) !important;
+  font-size: 14px !important;
+}
+
+.gg-map-open-btn {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  min-height: 44px !important;
+  padding: 0.55em 1.6em !important;
+  border-radius: var(--gg-radius-pill) !important;
+  background: var(--gg-orange) !important;
+  color: #fff !important;
+  font-family: 'Fredoka', sans-serif !important;
+  font-weight: 500 !important;
+  font-size: 16px !important;
+  text-decoration: none !important;
+  white-space: nowrap !important;
+  letter-spacing: 0.02em;
+  transition: transform 0.15s, box-shadow 0.15s, background 0.15s !important;
+}
+
+.gg-map-open-btn:hover {
+  background: var(--gg-orange-deep) !important;
+  color: #fff !important;
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(13, 45, 82, 0.15) !important;
+}
+
+.gg-map-tip {
+  display: flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  background: rgba(245, 200, 66, 0.18) !important;
+  border: 1.5px solid rgba(245, 200, 66, 0.4) !important;
+  border-radius: var(--gg-radius-sm) !important;
+  padding: 10px 14px !important;
+  margin: 0 0 14px !important;
+  font-size: 14px !important;
+  color: var(--gg-ink-soft) !important;
+  line-height: 1.4 !important;
+}
+
+.gg-map-tip strong {
+  color: var(--gg-ink) !important;
+}
+
+.gg-map-tip svg {
+  width: 18px !important;
+  height: 18px !important;
+  flex-shrink: 0 !important;
+}
+
+.gg-map-embed-wrap {
+  width: 100% !important;
+  height: min(72vh, 700px) !important;
+  min-height: 430px !important;
+  overflow: hidden !important;
+  border-radius: 14px !important;
+  border: 4px solid #fff !important;
+  background: var(--gg-paper-dim) !important;
+  box-shadow: 0 2px 12px rgba(13, 45, 82, 0.08) !important;
+}
+
+.gg-map-embed-wrap iframe {
+  width: 100% !important;
+  height: 100% !important;
+  border: 0 !important;
+  display: block !important;
+}
+
+.gg-map-help {
+  margin: 14px 4px 0 !important;
+  color: var(--gg-ink-soft) !important;
+  font-size: 0.95rem !important;
+  line-height: 1.45 !important;
+}
+
+.gg-map-info-grid {
+  display: grid !important;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  gap: 16px !important;
+  max-width: var(--gg-content-max) !important;
+  margin: 0 auto 2rem !important;
+}
+
+.gg-map-info-card {
+  background: var(--gg-paper) !important;
+  border: 2px solid var(--gg-paper-edge) !important;
+  border-radius: var(--gg-radius) !important;
+  padding: 18px !important;
+  box-shadow: 0 10px 22px rgba(13, 45, 82, 0.08) !important;
+  text-align: center !important;
+}
+
+.gg-map-info-card h3 {
+  margin: 0 0 6px !important;
+  color: var(--gg-ink) !important;
+  font-family: 'Fredoka', sans-serif !important;
+  font-size: 1.05rem !important;
+  font-weight: 500 !important;
+}
+
+.gg-map-info-card p {
+  margin: 0 !important;
+  color: var(--gg-ink-soft) !important;
+  font-size: 14px !important;
+  line-height: 1.5 !important;
+}
+
+@media (max-width: 760px) {
+  .gg-map-card-header {
+    align-items: stretch !important;
+    flex-direction: column !important;
+  }
+
+  .gg-map-open-btn {
+    width: 100% !important;
+  }
+
+  .gg-map-embed-wrap {
+    height: 68vh !important;
+    min-height: 360px !important;
+  }
+
+  .gg-map-info-grid {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+
+/* ===================
+   14. STAT CARDS (gg-stats-row)
+   For stats on the cream paper background.
+   =================== */
+.gg-stats-row {
+  background: transparent !important;
+  gap: 16px !important;
+}
+
+.gg-stats-row .wp-block-column {
+  background: #fff !important;
+  border: 2px solid var(--gg-paper-edge) !important;
+  border-radius: var(--gg-radius) !important;
+  padding: 1.5rem !important;
+  text-align: center !important;
+  box-shadow: 0 2px 8px rgba(13, 45, 82, 0.06);
+}
+
+.gg-stats-row .wp-block-column h2,
+.gg-stats-row .wp-block-column h3 {
+  font-family: 'Fredoka', sans-serif !important;
+  font-size: 2rem !important;
+  font-weight: 600 !important;
+  color: var(--gg-blue) !important;
+  margin-bottom: 0.25rem !important;
+  line-height: 1.1;
+}
+
+.gg-stats-row .wp-block-column p {
+  font-size: 13px !important;
+  color: var(--gg-ink-mute) !important;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+  margin: 0 !important;
+}
+
+
+/* ===================
+   15. HOMEPAGE — HERO INLINE STATS (translucent)
+   White-on-translucent (not gold) so gold stays for tip boxes.
+   =================== */
+.gg-hero-stats {
+  max-width: 640px !important;
+  margin: 0 auto !important;
+  gap: 8px !important;
+  background: transparent !important;
+}
+
+.gg-hero-stats .wp-block-column {
+  text-align: center !important;
+  padding: 0.85rem 1rem !important;
+  background: rgba(255, 255, 255, 0.10) !important;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  border: 1px solid rgba(255, 255, 255, 0.18) !important;
+  border-radius: var(--gg-radius-sm) !important;
+  box-shadow: none !important;
+  position: relative;
+}
+
+.gg-hero-stats .wp-block-column h2,
+.gg-hero-stats .wp-block-column h3 {
+  font-family: 'Fredoka', sans-serif !important;
+  font-size: 1.6rem !important;
+  font-weight: 600 !important;
+  color: #fff !important;
+  margin: 0 0 0.25rem !important;
+  line-height: 1.1;
+  white-space: nowrap !important;
+}
+
+.gg-hero-stats .wp-block-column p {
+  font-size: 11px !important;
+  color: rgba(255, 255, 255, 0.72) !important;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-weight: 600;
+  margin: 0 !important;
+  max-width: none !important;
+  white-space: nowrap !important;
+}
+
+
+/* ===================
+   16. FEATURE CARDS (gg-feature-card)
+   =================== */
+.gg-feature-card {
+  background: #fff !important;
+  border: 2px solid var(--gg-paper-edge) !important;
+  border-radius: var(--gg-radius) !important;
+  padding: 1.5rem !important;
+  transition: transform 0.2s, box-shadow 0.2s, border-color 0.2s;
+}
+
+.gg-feature-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 10px 28px rgba(13, 45, 82, 0.1) !important;
+  border-color: var(--gg-blue) !important;
+}
+
+.gg-feature-card h3 {
+  font-family: 'Fredoka', sans-serif !important;
+  font-size: 1.3rem !important;
+  color: var(--gg-ink) !important;
+  margin-bottom: 0.4rem !important;
+}
+
+.gg-feature-card p {
+  font-size: 14px !important;
+  color: var(--gg-ink-mute) !important;
+  line-height: 1.6 !important;
+}
+
+.gg-feature-card a {
+  color: var(--gg-blue) !important;
+  font-weight: 600;
+  font-size: 14px;
+  text-decoration: none !important;
+}
+
+.gg-feature-card a:hover {
+  color: var(--gg-blue-deep) !important;
+}
+
+
+/* ===================
+   17. SECTION ACCENT BACKGROUNDS (utility tinted sections)
+   =================== */
+.gg-section-green {
+  background: linear-gradient(135deg,
+    rgba(125, 194, 92, 0.12) 0%,
+    rgba(31, 165, 220, 0.08) 100%) !important;
+  border-radius: var(--gg-radius) !important;
+  padding: 2.5rem 2rem !important;
+  border: 1.5px solid rgba(125, 194, 92, 0.25) !important;
+}
+
+.gg-section-blue {
+  background: linear-gradient(135deg,
+    rgba(31, 165, 220, 0.1) 0%,
+    rgba(14, 92, 158, 0.06) 100%) !important;
+  border-radius: var(--gg-radius) !important;
+  padding: 2.5rem 2rem !important;
+  border: 1.5px solid rgba(31, 165, 220, 0.2) !important;
+}
+
+.gg-paper-card {
+  background: #fff !important;
+  border: 2px solid var(--gg-paper-edge) !important;
+  border-radius: var(--gg-radius) !important;
+  padding: 2rem !important;
+  box-shadow: 0 2px 12px rgba(13, 45, 82, 0.06);
+}
+
+
+/* ===================
+   18. RESOURCES PAGE — GROUPED LISTS (Concept C)
+   =================== */
+.gg-res-group {
+  background: #fff !important;
+  border: 1.5px solid var(--gg-paper-edge) !important;
+  border-radius: var(--gg-radius) !important;
+  overflow: hidden !important;
+  padding: 0 !important;
+  margin-bottom: 1.25rem !important;
+}
+
+.gg-res-row {
+  display: flex !important;
+  width: 100% !important;
+  box-sizing: border-box !important;
+  align-items: center !important;
+  padding: 12px 16px !important;
+  gap: 12px !important;
+  border-bottom: 1px solid var(--gg-paper-dim) !important;
+  background: transparent !important;
+}
+
+.gg-res-row:last-child {
+  border-bottom: none !important;
+}
+
+.gg-res-row h3,
+.gg-res-row .wp-block-heading {
+  font-family: 'Nunito', sans-serif !important;
+  font-size: 14px !important;
+  font-weight: 600 !important;
+  color: var(--gg-ink) !important;
+  margin: 0 !important;
+  line-height: 1.3 !important;
+}
+
+.gg-res-row p {
+  font-size: 12px !important;
+  color: var(--gg-ink-mute) !important;
+  margin: 0 !important;
+  line-height: 1.3 !important;
+}
+
+.gg-res-row a {
+  color: var(--gg-blue) !important;
+  text-decoration: none !important;
+  font-weight: 600 !important;
+}
+
+.gg-res-row a:hover {
+  color: var(--gg-blue-deep) !important;
+  text-decoration: underline !important;
+}
+
+/* Square row icon (legacy) */
+.gg-res-icon {
+  width: 32px !important;
+  min-width: 32px !important;
+  height: 32px !important;
+  border-radius: 8px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  font-size: 16px !important;
+  flex-shrink: 0 !important;
+}
+
+.gg-res-icon-green  { background: rgba(125, 194, 92, 0.12) !important; color: var(--gg-green) !important; }
+.gg-res-icon-blue   { background: rgba(31, 165, 220, 0.10) !important; color: var(--gg-blue) !important; }
+.gg-res-icon-orange { background: rgba(240, 136, 56, 0.12) !important; color: var(--gg-orange) !important; }
+
+
+/* ===================
+   19. RESOURCES PAGE — COMMUNITY CARDS
+   =================== */
+.gg-res-community {
+  gap: 12px !important;
+  margin-bottom: 1.25rem !important;
+}
+
+.gg-res-community .wp-block-column {
+  background: #fff !important;
+  border: 1.5px solid var(--gg-paper-edge) !important;
+  border-radius: var(--gg-radius) !important;
+  padding: 22px 14px !important;
+  text-align: center !important;
+  transition: transform 0.15s, box-shadow 0.15s, border-color 0.15s;
+}
+
+.gg-res-community .wp-block-column:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 18px rgba(13, 45, 82, 0.08);
+  border-color: var(--gg-blue) !important;
+}
+
+.gg-res-community .wp-block-column h3 {
+  font-family: 'Fredoka', sans-serif !important;
+  font-size: 15px !important;
+  font-weight: 500 !important;
+  color: var(--gg-ink) !important;
+  margin: 0 0 2px !important;
+}
+
+.gg-res-community .wp-block-column p {
+  font-size: 12px !important;
+  color: var(--gg-ink-mute) !important;
+  margin: 0 !important;
+}
+
+.gg-res-community .wp-block-column a {
+  color: var(--gg-blue) !important;
+  text-decoration: none !important;
+}
+
+.gg-res-community .wp-block-column a:hover {
+  text-decoration: underline !important;
+}
+
+
+/* ===================
+   20. RESOURCES PAGE — TRAINER TIP (gold)
+   =================== */
+.gg-res-tip {
+  background: linear-gradient(135deg,
+    rgba(245, 200, 66, 0.12),
+    rgba(240, 136, 56, 0.06)) !important;
+  border: 1.5px solid rgba(245, 200, 66, 0.25) !important;
+  border-radius: var(--gg-radius) !important;
+  padding: 14px 18px !important;
+  margin-top: 1.5rem !important;
+}
+
+.gg-res-tip p {
+  font-size: 14px !important;
+  color: var(--gg-ink-soft) !important;
+  line-height: 1.5 !important;
+  margin: 0 !important;
+}
+
+.gg-res-tip strong {
+  font-family: 'Fredoka', sans-serif !important;
+  font-weight: 500 !important;
+  color: var(--gg-ink) !important;
+}
+
+
+/* ===================
+   21. ABOUT PAGE
+   =================== */
+.gg-ambassador-card {
+  background: #fff !important;
+  border: 2px solid var(--gg-paper-edge) !important;
+  border-radius: var(--gg-radius) !important;
+  padding: 1.5rem !important;
+  text-align: center !important;
+}
+
+.gg-ambassador-card img {
+  border-radius: var(--gg-radius) !important;
+  width: 100% !important;
+  object-fit: cover !important;
+  aspect-ratio: 1 / 1 !important;
+  margin-bottom: 1rem !important;
+}
+
+.gg-what-we-do .wp-block-column {
+  background: #fff !important;
+  border: 2px solid var(--gg-paper-edge) !important;
+  border-radius: var(--gg-radius) !important;
+  padding: 1.25rem !important;
+}
+
+.gg-what-we-do .wp-block-column h3 {
+  color: var(--gg-blue) !important;
+}
+
+
+/* ===================
+   22. CONTACT PAGE
+   =================== */
+.gg-social-section {
+  border-radius: var(--gg-radius) !important;
+  overflow: hidden !important;
+}
+
+
+/* ===================
+   23. FOOTER
+   =================== */
+.site-footer,
+.site-below-footer-wrap,
+.footer-widget-area,
+.ast-small-footer,
+.ast-footer-copyright,
+.ast-builder-footer-grid-columns,
+.site-footer-above-section-1,
+.site-footer-primary-section-1,
+.site-footer-below-section-1,
+.site-primary-footer-wrap,
+.site-above-footer-wrap {
+  background-color: var(--gg-ink) !important;
+  color: rgba(255,255,255,0.6) !important;
+  font-family: 'Nunito', sans-serif !important;
+}
+
+.site-footer a,
+.ast-small-footer a,
+.site-below-footer-wrap a,
+.site-primary-footer-wrap a {
+  color: rgba(255,255,255,0.5) !important;
+  text-decoration: none !important;
+}
+
+.site-footer a:hover,
+.site-below-footer-wrap a:hover,
+.site-primary-footer-wrap a:hover {
+  color: #fff !important;
+}
+
+.ast-small-footer .ast-footer-copyright a[href*="wpastra"],
+.ast-small-footer .ast-footer-copyright a[href*="astra"],
+.site-below-footer-wrap a[href*="wpastra"],
+.site-below-footer-wrap a[href*="astra"],
+.ast-footer-copyright a[href*="wpastra"],
+.ast-footer-copyright a[href*="astra"] {
+  display: none !important;
+}
+
+.ast-footer-copyright {
+  color: rgba(255,255,255,0.4) !important;
+  font-size: 13px !important;
+}
+
+.gg-footer {
+  display: flex !important;
+  justify-content: space-between !important;
+  align-items: center !important;
+  flex-wrap: wrap;
+  gap: 16px;
+  padding: 1.25rem 1.5rem;
+  max-width: var(--gg-content-max);
+  margin: 0 auto;
+  text-align: left !important;
+}
+
+.gg-footer-left {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.gg-footer-brand {
+  color: #fff !important;
+  font-family: 'Fredoka', sans-serif;
+  font-size: 15px;
+  font-weight: 500;
+}
+
+.gg-footer-copy {
+  color: rgba(255,255,255,0.4);
+  font-size: 12px;
+}
+
+.gg-footer-copy a {
+  color: rgba(255,255,255,0.5) !important;
+  text-decoration: none !important;
+}
+
+.gg-footer-copy a:hover {
+  color: #fff !important;
+}
+
+.gg-footer-socials {
+  display: flex !important;
+  flex-direction: row !important;
+  gap: 8px;
+  align-items: center;
+}
+
+.gg-footer-socials a {
+  display: inline-flex !important;
+  align-items: center !important;
+  width: auto !important;
+  height: auto !important;
+  border-radius: 50px !important;
+  background: rgba(255,255,255,0.1) !important;
+  padding: 6px 16px !important;
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  color: rgba(255,255,255,0.6) !important;
+  text-decoration: none !important;
+  transition: background 0.15s, color 0.15s !important;
+}
+
+.gg-footer-socials a:hover {
+  background: rgba(255,255,255,0.2) !important;
+  color: #fff !important;
+}
+
+
+/* ===================
+   24. HIDE PAGE TITLES (per page ID)
+   Home=8, About=19, Events=21, Resources=23, Contact=25,
+   Event Tools=149, Privacy Policy=241
+
+   TODO: once the new Map page is published, note its page ID
+   and add a ".page-id-NNN .entry-title, .page-id-NNN
+   .ast-archive-title { display: none !important; }" rule below
+   (the gg-page-header already shows the title visually).
+   =================== */
+.page-id-8 .entry-title,
+.page-id-8 .ast-archive-title,
+.page-id-19 .entry-title,
+.page-id-19 .ast-archive-title,
+.page-id-21 .entry-title,
+.page-id-21 .ast-archive-title,
+.page-id-23 .entry-title,
+.page-id-23 .ast-archive-title,
+.page-id-25 .entry-title,
+.page-id-25 .ast-archive-title,
+.page-id-149 .entry-title,
+.page-id-149 .ast-archive-title {
+  display: none !important;
+}
+
+
+/* ===================
+   25. GLOBAL — SMOOTH SCROLLING + LINK TRANSITIONS
+   =================== */
+html {
+  scroll-behavior: smooth;
+}
+
+a {
+  transition: color 0.15s;
+}
+
+
+/* ===================
+   26. MOBILE RESPONSIVENESS
+
+   NOTE (v1.4.8): the assumption below — "folder tabs are
+   desktop-only" — was WRONG. Confirmed via DOM inspector that
+   Astra's mobile hamburger menu (#ast-hf-mobile-menu) reuses the
+   SAME .main-header-menu markup and classes as desktop, so
+   Section 7's folder-tab rules (flex-wrap: nowrap, tab-shaped
+   padding/border-radius, ::before stripes) were bleeding into
+   the mobile menu with no override, causing tabs to overflow
+   into a ragged wrapped grid instead of stacking. Fixed below —
+   mobile nav now explicitly overridden to stack full-width with
+   a left-edge color bar replacing the top stripe.
+
+   Also fixed in v1.4.8: .site-title was wrapping letter-by-
+   letter on mobile — confirmed via DOM inspector the title's
+   flex box had collapsed to ~36px wide with no white-space rule
+   to stop it. Given nowrap + a proper flex-basis below.
+   =================== */
+@media (max-width: 768px) {
+  /* --- Site title: stop letter-by-letter wrap (v1.4.8) --- */
+  .site-header .ast-site-identity,
+  .site-header .site-branding,
+  .site-header .ast-site-identity .site-title,
+  .site-header .site-title {
+    flex: 1 1 auto !important;
+    min-width: 0 !important;
+  }
+
+  .site-title a {
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    display: block !important;
+    font-size: 1.1rem !important;
+  }
+
+  /* --- Mobile nav: force real stacking, undo folder-tab shape
+     (v1.4.8, corrected v1.4.9 against confirmed DOM). Astra's
+     own "stack-on-mobile" class wants flex-direction: column —
+     Section 7's nowrap/tab rules were overriding it with no
+     media guard. Restored here, plus a left-edge color bar
+     (replaces the desktop top stripe) so the stripe-color
+     grouping still reads on mobile.
+
+     v1.4.9 fix: #ast-hf-mobile-menu IS the <ul> itself (confirmed
+     via DOM inspector), not a wrapper containing a nested
+     ul.main-header-menu — the v1.4.8 selectors had an extra
+     descendant level that matched nothing. Also confirmed the
+     actual link class is a.menu-link (not a bare child selector),
+     so it's now targeted directly for higher specificity. --- */
+  ul#ast-hf-mobile-menu.main-header-menu {
+    flex-direction: column !important;
+    flex-wrap: nowrap !important;
+    width: 100% !important;
+    gap: 0 !important;
+  }
+
+  ul#ast-hf-mobile-menu.main-header-menu > li.menu-item {
+    width: 100% !important;
+    margin: 0 !important;
+  }
+
+  ul#ast-hf-mobile-menu.main-header-menu > li.menu-item > a.menu-link {
+    display: block !important;
+    width: 100% !important;
+    box-sizing: border-box !important;
+    background: var(--gg-paper) !important;
+    border-radius: 0 !important;
+    border: none !important;
+    border-bottom: 1px solid var(--gg-paper-edge) !important;
+    padding: 12px 16px 12px 13px !important;
+    margin: 0 !important;
+    box-shadow: none !important;
+    top: 0 !important;
+  }
+
+  ul#ast-hf-mobile-menu.main-header-menu > li.menu-item > a.menu-link::before {
+    top: 0 !important;
+    left: 0 !important;
+    right: auto !important;
+    width: 3px !important;
+    height: 100% !important;
+    border-radius: 0 !important;
+  }
+
+  .gg-stats-row .wp-block-column,
+  .gg-feature-card {
+    margin-bottom: 12px;
+  }
+
+  .wp-block-cover__inner-container {
+    padding: 1.5rem !important;
+  }
+
+  /* Page header — tall */
+  .gg-page-header--tall {
+    min-height: 440px !important;
+    padding: 2.5rem 1.25rem 2rem !important;
+  }
+
+  .gg-page-header--tall h1 {
+    font-size: 2rem !important;
+  }
+
+  .gg-page-header--tall p {
+    font-size: 1rem !important;
+  }
+
+  /* Page header — short */
+  .gg-page-header--short {
+    min-height: 160px !important;
+    padding: 2rem 1.25rem 1.5rem !important;
+  }
+
+  .gg-page-header--short h1 {
+    font-size: 1.6rem !important;
+  }
+
+  .gg-page-header--short p {
+    font-size: 0.95rem !important;
+  }
+
+  /* Hero stats stack better on mobile */
+  .gg-hero-stats {
+    flex-direction: row !important;
+    flex-wrap: wrap !important;
+  }
+
+  .gg-hero-stats .wp-block-column h2,
+  .gg-hero-stats .wp-block-column h3 {
+    font-size: 1.3rem !important;
+  }
+
+  .gg-hero-stats .wp-block-column p {
+    font-size: 10px !important;
+  }
+
+  /* CTA band */
+  .gg-cta-band,
+  .gg-events-cta {
+    padding: 1.5rem 1.25rem !important;
+    margin: 2rem auto !important;
+  }
+
+  .gg-cta-band h2,
+  .gg-events-cta h3 {
+    font-size: 1.2rem !important;
+  }
+
+  /* Resources */
+  .gg-res-community .wp-block-column {
+    margin-bottom: 8px;
+  }
+
+  /* Footer */
+  .gg-footer {
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    gap: 12px !important;
+  }
+}
+
+
+/* ============================================================
+   27. LEGACY HERO ALIASES
+   Old per-page hero classes resolve to the unified short
+   variant. Safe to leave; safe to delete once pages are
+   migrated to gg-page-header directly.
+   ============================================================ */
+
+.gg-hero-events,
+.gg-hero-resources {
+  background: var(--gg-header-gradient) !important;
+  border-radius: var(--gg-radius) !important;
+  margin: 1.5rem auto 2rem !important;
+  max-width: var(--gg-content-max) !important;
+  min-height: 200px !important;
+  padding: 2.5rem 2rem !important;
+  overflow: hidden !important;
+}
+
+.gg-hero-events .wp-block-cover__background,
+.gg-hero-events .has-background-dim,
+.gg-hero-resources .wp-block-cover__background,
+.gg-hero-resources .has-background-dim {
+  display: none !important;
+}
+
+.gg-hero-events .wp-block-cover__inner-container,
+.gg-hero-resources .wp-block-cover__inner-container {
+  margin: 0 auto !important;
+  max-width: 600px !important;
+}
+
+.gg-hero-events h1,
+.gg-hero-resources h1 {
+  font-family: 'Fredoka', sans-serif !important;
+  font-size: 2.2rem !important;
+  font-weight: 600 !important;
+  color: #fff !important;
+  line-height: 1.15 !important;
+  margin-bottom: 0.5rem !important;
+}
+
+.gg-hero-events p,
+.gg-hero-resources p {
+  color: rgba(255, 255, 255, 0.85) !important;
+  font-size: 1rem !important;
+  line-height: 1.6 !important;
+  max-width: 460px !important;
+  margin: 0 auto !important;
+}
+
+.gg-hero-b {
+  background: var(--gg-header-gradient) !important;
+  border-radius: var(--gg-radius) !important;
+  margin: 1.5rem auto 2rem !important;
+  max-width: var(--gg-content-max) !important;
+  min-height: 520px !important;
+  padding: 4rem 2rem 3rem !important;
+  overflow: hidden !important;
+}
+
+.gg-hero-b .wp-block-cover__background,
+.gg-hero-b .has-background-dim {
+  display: none !important;
+}
+
+.gg-hero-b .wp-block-cover__inner-container {
+  max-width: 720px !important;
+  margin: 0 auto !important;
+}
+
+.gg-hero-b h1 {
+  font-family: 'Fredoka', sans-serif !important;
+  font-size: 2.8rem !important;
+  font-weight: 600 !important;
+  color: #fff !important;
+  line-height: 1.15 !important;
+  margin-bottom: 1.25rem !important;
+}
+
+.gg-hero-b p {
+  color: rgba(255, 255, 255, 0.85) !important;
+  font-size: 1.1rem !important;
+  line-height: 1.6 !important;
+  max-width: 480px !important;
+  margin: 0 auto 0.5rem !important;
+}
+
+.gg-hero-b .wp-block-buttons {
+  justify-content: center !important;
+  margin: 1.5rem 0 2rem !important;
+}
+
+.gg-hero-b .wp-block-button__link {
+  font-size: 16px !important;
+  padding: 0.7em 2em !important;
+}

@@ -1,0 +1,20 @@
+# Secrets - never commit these
+*firebase-adminsdk*.json
+*.pem
+*.key
+
+# Bulk archives and generated bundles
+*.zip
+*.pdf
+files/
+files 260/
+files250/
+files270/
+files294/
+files5/
+handoff files/
+
+# Old scratch/superseded files
+event tools source*.txt
+event-tools-FIXED.html
+ENGINEERING_HANDOFF.md

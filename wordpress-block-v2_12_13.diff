@@ -1,0 +1,328 @@
+--- /mnt/data/wordpress-block-v2_12_12.html	2026-06-24 03:04:50.305515018 +0000
++++ /mnt/data/wordpress-block-v2_12_13.html	2026-06-24 03:07:50.933326928 +0000
+@@ -316,9 +316,9 @@
+     const savedName = getSavedTrainerName();
+     if (savedName) {
+       const profile = await FB.get(`users/${uid}`);
+-      if (profile && !profile.trainerName) {
++      if (profile) { if (!profile.trainerName) {
+         await FB.set(`users/${uid}/trainerName`, savedName);
+-      }
++      } }
+     }
+ 
+     // Write the migration mapping
+@@ -818,7 +818,7 @@
+   // HOME
+   // ───────────────────────────────────────────────────────────
+   function Home({ setView, c, isHost, authUser, communityMode, onGoogleSignIn, onGuestMode, onSignOut, authBusy, authError }) {
+-    if (isHost && authUser) return <EventDayDashboard setView={setView} c={c} user={authUser} />;
++    if (isHost) { if (authUser) return <EventDayDashboard setView={setView} c={c} user={authUser} />; }
+     return <AttendeeHome setView={setView} c={c}
+       authUser={authUser} communityMode={communityMode}
+       onGoogleSignIn={onGoogleSignIn} onGuestMode={onGuestMode}
+@@ -1152,6 +1152,85 @@
+   }
+ 
+ 
++
++  // ───────────────────────────────────────────────────────────
++  // OPTIONAL PROFILE SIGN-IN — shown inside direct QR flows.
++  // This is deliberately optional: public Code Drop and Giveaway QR
++  // links still work for guests, but signing in lets the app attach
++  // the claim/entry to the user's Garden Grove PoGo profile for future
++  // history/passport features. Keep this as a top-level component.
++  // ───────────────────────────────────────────────────────────
++  function OptionalProfileSignInCard({ c, authUser, authBusy, authError, onGoogleSignIn, onSignOut, flow }) {
++    const isSignedIn = !!authUser;
++    const isChecking = authUser === undefined;
++    const flowLabel = flow === "code" ? "code claim" : "giveaway entry";
++    const signedInName = authUser ? (authUser.displayName || "Trainer") : "";
++    const signedInEmail = authUser ? (authUser.email || "") : "";
++
++    if (isSignedIn) {
++      return (
++        <div style={{ background: c.grassMid + "22", border: `2px solid ${c.grassMid}`, borderRadius: 14, padding: "12px 14px", marginBottom: 16, textAlign: "left" }}>
++          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
++            <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
++              {authUser.photoURL ? (
++                <img src={authUser.photoURL} alt="" style={{ width: 34, height: 34, borderRadius: "50%", border: `2px solid ${c.paperEdge}`, flexShrink: 0 }} referrerPolicy="no-referrer" />
++              ) : (
++                <div style={{ width: 34, height: 34, borderRadius: "50%", background: c.grassMid + "33", display: "flex", alignItems: "center", justifyContent: "center", color: c.grassDeep, fontWeight: 700, flexShrink: 0 }}>{signedInName.slice(0, 1) || "G"}</div>
++              )}
++              <div style={{ minWidth: 0 }}>
++                <div style={{ fontSize: 13, fontWeight: 700, color: c.ink }}>Signed in as {signedInName}</div>
++                {signedInEmail ? <div style={{ fontSize: 10, color: c.inkMute, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{signedInEmail}</div> : null}
++              </div>
++            </div>
++            {onSignOut ? (
++              <button onClick={onSignOut} style={{ background: "transparent", border: "none", color: c.inkMute, fontSize: 11, fontFamily: "Fredoka, sans-serif", fontWeight: 700, cursor: "pointer", textDecoration: "underline", flexShrink: 0 }}>Sign out</button>
++            ) : null}
++          </div>
++          <div style={{ fontSize: 11, color: c.inkSoft, lineHeight: 1.45, marginTop: 8 }}>
++            This {flowLabel} will be connected to your Garden Grove PoGo profile.
++          </div>
++        </div>
++      );
++    }
++
++    return (
++      <div style={{ background: c.blue + "14", border: `2px solid ${c.blue}`, borderRadius: 14, padding: "12px 14px", marginBottom: 16, textAlign: "left" }}>
++        <div style={{ fontSize: 13, fontWeight: 700, color: c.ink, marginBottom: 4 }}>Save this to your profile</div>
++        <div style={{ fontSize: 11, color: c.inkSoft, lineHeight: 1.5, marginBottom: 10 }}>
++          Sign in with Google before continuing to connect this {flowLabel} to your Garden Grove PoGo profile. Continuing without signing in still works, but this activity will not be saved to your meetup history, code claim history, giveaway entry history, or future passport progress.
++        </div>
++        {isChecking ? (
++          <div style={{ fontSize: 11, color: c.inkMute, fontWeight: 600 }}>Checking sign-in status...</div>
++        ) : (
++          <StickerBtn fill="#4285F4" shadow="#2a5db0" small onClick={onGoogleSignIn} disabled={authBusy} style={{ width: "100%", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
++            <svg width="16" height="16" viewBox="0 0 24 24" style={{ flexShrink: 0 }}>
++              <path fill="#fff" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"/>
++              <path fill="#fff" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
++              <path fill="#fff" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18A10.96 10.96 0 0 0 1 12c0 1.78.43 3.47 1.18 4.93l3.66-2.84z"/>
++              <path fill="#fff" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
++            </svg>
++            {authBusy ? "Signing in..." : "Sign in with Google"}
++          </StickerBtn>
++        )}
++        {authError ? <div style={{ color: c.strawberry, fontSize: 11, fontWeight: 700, marginTop: 8, textAlign: "center" }}>{authError}</div> : null}
++      </div>
++    );
++  }
++
++  async function rememberTrainerNameForProfile(authUser, trainerName) {
++    if (!authUser) return false;
++    const cleanName = (trainerName || "").trim();
++    if (!cleanName) return false;
++    return FB.set(`users/${authUser.uid}/trainerName`, cleanName);
++  }
++
++  async function recordProfileActivity(authUser, bucket, data) {
++    if (!authUser) return false;
++    const id = genId();
++    const payload = { ...data, recordedAt: Date.now() };
++    return FB.set(`users/${authUser.uid}/activity/${bucket}/${id}`, payload);
++  }
++
+   // The attendee landing view for logged-out visitors. Watches cd:session
+   // and gw:session (both publicly readable) so it only shows tiles for
+   // tools that are actually running — no dead-end buttons between events.
+@@ -1184,9 +1263,10 @@
+     }, []);
+ 
+     // Determine greeting and user display info
+-    const isSignedIn = communityMode === "signed_in" && !!authUser;
++    const isSignedIn = communityMode === "signed_in" ? !!authUser : false;
+     const isGuest = communityMode === "guest";
+     const guestDisplayName = getGuestName();
++    const showSignInChooser = !isSignedIn ? !isGuest : false;
+     const greeting = isSignedIn
+       ? `Hey, ${authUser.displayName || "Trainer"}!`
+       : isGuest
+@@ -1253,7 +1333,7 @@
+                           <div style={{ fontWeight: 700, fontSize: 18, color: c.ink, lineHeight: 1 }}>Code Drop</div>
+                           <div style={{ color: c.inkSoft, fontSize: 12, marginTop: 4 }}>Claim your code</div>
+                         </div>
+-                        <div style={{ color: c.blue, fontSize: 24, fontWeight: 700 }}>></div>
++                        <div style={{ color: c.blue, fontSize: 24, fontWeight: 700 }}>›</div>
+                       </div>
+                     </Paper>
+                   </div>
+@@ -1267,7 +1347,7 @@
+                           <div style={{ fontWeight: 700, fontSize: 18, color: c.ink, lineHeight: 1 }}>Giveaway</div>
+                           <div style={{ color: c.inkSoft, fontSize: 12, marginTop: 4 }}>Enter the raffle</div>
+                         </div>
+-                        <div style={{ color: c.strawberry, fontSize: 24, fontWeight: 700 }}>></div>
++                        <div style={{ color: c.strawberry, fontSize: 24, fontWeight: 700 }}>›</div>
+                       </div>
+                     </Paper>
+                   </div>
+@@ -1304,7 +1384,7 @@
+           )}
+ 
+           {/* Sign-in section: only show chooser if not yet signed in or in guest mode */}
+-          {!isSignedIn && !isGuest ? (
++          {showSignInChooser ? (
+             <div style={{ borderTop: `1.5px dashed ${c.paperEdge}`, marginTop: 18, paddingTop: 14 }}>
+               <CommunitySignInChooser c={c} onGoogleSignIn={onGoogleSignIn} onGuestMode={onGuestMode} authBusy={authBusy} authError={authError} />
+             </div>
+@@ -2202,7 +2282,7 @@
+   // ───────────────────────────────────────────────────────────
+   // ATTENDEE CLAIM PAGE (public, no auth)
+   // ───────────────────────────────────────────────────────────
+-  function CodeClaim({ c, sessionId }) {
++  function CodeClaim({ c, sessionId, authUser, onGoogleSignIn, onSignOut, authBusy, authError }) {
+     const [stage, setStage] = useState("loading");
+     const [name, setName] = useState(() => getSavedTrainerName());
+     const [myCode, setMyCode] = useState(null);
+@@ -2297,11 +2377,14 @@
+       // whether a limit is enabled (used for stats either way).
+       await incrementCounter("cd:session/claimedCount");
+ 
+-      await FB.push("cd:sessionLog", { name: claimName, code: claimedPick.value, reward: claimedPick.reward || null, time: Date.now(), fp });
++      const claimTime = Date.now();
++      const entryMode = authUser ? "signed_in" : "guest";
++      await FB.push("cd:sessionLog", { name: claimName, code: claimedPick.value, reward: claimedPick.reward || null, time: claimTime, fp, uid: authUser ? authUser.uid : null, entryMode });
++      await recordProfileActivity(authUser, "codeClaims", { sessionId, sessionCode: sessionCode(sessionId), codeId: claimedPick.id, code: claimedPick.value, reward: claimedPick.reward || null, displayName: claimName, claimedAt: claimTime });
+ 
+       // Only persist a real (non-skipped) name — skipping shouldn't
+       // overwrite a name saved from a previous visit.
+-      if (trimmed) saveTrainerName(trimmed);
++      if (trimmed) { saveTrainerName(trimmed); await rememberTrainerNameForProfile(authUser, trimmed); }
+ 
+       setMyCode(claimedPick.value);
+       setMyReward(claimedPick.reward || null);
+@@ -2367,6 +2450,7 @@
+         </div>
+         <h2 style={{ fontFamily: "Fredoka, sans-serif", fontSize: 19, fontWeight: 700, color: c.ink, marginBottom: 6 }}>Enter your trainer name to continue</h2>
+         <p style={{ color: c.inkSoft, fontSize: 13, marginBottom: 16 }}>This helps the host verify your claim if there's ever a question about it.</p>
++        <OptionalProfileSignInCard c={c} authUser={authUser} authBusy={authBusy} authError={authError} onGoogleSignIn={onGoogleSignIn} onSignOut={onSignOut} flow="code" />
+         <div style={{ textAlign: "left", marginBottom: 6 }}>
+           <label style={{ fontSize: 12, fontWeight: 700, color: c.inkSoft }}>Trainer name</label>
+         </div>
+@@ -2434,7 +2518,7 @@
+   // ───────────────────────────────────────────────────────────
+   // GIVEAWAY ENTRY PAGE (public, no auth)
+   // ───────────────────────────────────────────────────────────
+-  function GiveawayClaim({ c, sessionId }) {
++  function GiveawayClaim({ c, sessionId, authUser, onGoogleSignIn, onSignOut, authBusy, authError }) {
+     const [stage, setStage] = useState("loading");
+     const [name, setName] = useState(() => getSavedTrainerName());
+     const [wonPrize, setWonPrize] = useState(null); // { name, type, code?, description?, confirmed? }
+@@ -2530,13 +2614,16 @@
+       // existing display already reads entrant.name.
+       const entryName = trimmed || genTicketLabel();
+       const id = genId();
++      const entryTime = Date.now();
++      const entryMode = authUser ? "signed_in" : "guest";
+       myEntrantIdRef.current = id;
+-      const ok = await FB.set(`gw:entrants/${id}`, { name: entryName, fp, enteredAt: Date.now(), won: false });
++      const ok = await FB.set(`gw:entrants/${id}`, { name: entryName, fp, uid: authUser ? authUser.uid : null, entryMode, enteredAt: entryTime, won: false });
+       if (!ok) return setStage("entererror");
++      await recordProfileActivity(authUser, "giveawayEntries", { sessionId, sessionCode: sessionCode(sessionId), entrantId: id, displayName: entryName, enteredAt: entryTime });
+       // Only persist a real (non-skipped) name — skipping shouldn't
+       // overwrite a name saved from a previous visit, and we don't want
+       // a generated ticket label silently becoming "your name" next time.
+-      if (trimmed) { saveTrainerName(trimmed); } else { setName(entryName); }
++      if (trimmed) { saveTrainerName(trimmed); await rememberTrainerNameForProfile(authUser, trimmed); } else { setName(entryName); }
+       setStage("entered");
+     };
+ 
+@@ -2570,6 +2657,7 @@
+         </div>
+         <h2 style={{ fontFamily: "Fredoka, sans-serif", fontSize: 19, fontWeight: 700, color: c.ink, marginBottom: 6 }}>Enter your trainer name to continue</h2>
+         <p style={{ color: c.inkSoft, fontSize: 13, marginBottom: 16 }}>This is the name the host will call out if you win.</p>
++        <OptionalProfileSignInCard c={c} authUser={authUser} authBusy={authBusy} authError={authError} onGoogleSignIn={onGoogleSignIn} onSignOut={onSignOut} flow="giveaway" />
+         <div style={{ textAlign: "left", marginBottom: 6 }}>
+           <label style={{ fontSize: 12, fontWeight: 700, color: c.inkSoft }}>Trainer name</label>
+         </div>
+@@ -3568,8 +3656,12 @@
+         setTemplateMsg(`✓ Loaded "${template.name}"`);
+         setTimeout(() => setTemplateMsg(""), 4000);
+       };
+-      if (mode === "replace" && prizes.length) {
+-        requestConfirm(`Replace the current prize pool (${prizes.length} prize${prizes.length !== 1 ? 's' : ''}) with "${template.name}"?`, doApply);
++      if (mode === "replace") {
++        if (prizes.length) {
++          requestConfirm(`Replace the current prize pool (${prizes.length} prize${prizes.length !== 1 ? 's' : ''}) with "${template.name}"?`, doApply);
++        } else {
++          doApply();
++        }
+       } else {
+         doApply();
+       }
+@@ -4585,7 +4677,7 @@
+   // Bump this with every release so the live page always shows what's
+   // actually deployed — no more guessing whether a paste went through,
+   // or which version is live when reporting a field issue.
+-  const APP_VERSION = "v2.12.12";
++  const APP_VERSION = "v2.12.13";
+ 
+   function VersionFooter() {
+     return (
+@@ -4624,8 +4716,11 @@
+       const params = new URLSearchParams(window.location.search);
+       const claimId = params.get("cd_claim");
+       const joinId = params.get("gw_join");
+-      if (claimId) { setClaimSession(claimId); return; }
+-      if (joinId) { setJoinSession(joinId); return; }
++      setClaimSession(claimId || null);
++      setJoinSession(joinId || null);
++    }, []);
++
++    useEffect(() => {
+       const unsub = auth.onAuthStateChanged(async (u) => {
+         setAuthUser(u);
+         if (u) {
+@@ -4700,14 +4795,28 @@
+       fontFamily: "Fredoka, sans-serif",
+     };
+ 
+-    // Public attendee claim flow — always accessible, no auth needed
++    // Age gate overlay — must come before direct QR routes so a user
++    // who taps Google sign-in from a claim/join page can complete the
++    // age confirmation step without leaving that QR flow.
++    if (showAgeGate) {
++      return (
++        <div style={pageStyle}>
++          <AgeGate c={c} onConfirm={confirmAge} onCancel={() => setShowAgeGate(false)} />
++          <DiagnosticsPanel /><VersionFooter />
++        </div>
++      );
++    }
++
++    // Public attendee claim flow — accessible to guests, but now receives
++    // auth state/handlers so the page can offer optional Google sign-in.
+     if (claimSession) {
+-      return <div style={pageStyle}><CodeClaim c={c} sessionId={claimSession} /><DiagnosticsPanel /><VersionFooter /></div>;
++      return <div style={pageStyle}><CodeClaim c={c} sessionId={claimSession} authUser={authUser} onGoogleSignIn={startGoogleSignIn} onSignOut={signOutCommunity} authBusy={authBusy} authError={authError} /><DiagnosticsPanel /><VersionFooter /></div>;
+     }
+ 
+-    // Public giveaway entry flow — always accessible, no auth needed
++    // Public giveaway entry flow — accessible to guests, but now receives
++    // auth state/handlers so the page can offer optional Google sign-in.
+     if (joinSession) {
+-      return <div style={pageStyle}><GiveawayClaim c={c} sessionId={joinSession} /><DiagnosticsPanel /><VersionFooter /></div>;
++      return <div style={pageStyle}><GiveawayClaim c={c} sessionId={joinSession} authUser={authUser} onGoogleSignIn={startGoogleSignIn} onSignOut={signOutCommunity} authBusy={authBusy} authError={authError} /><DiagnosticsPanel /><VersionFooter /></div>;
+     }
+ 
+     // Auth check in progress
+@@ -4715,28 +4824,24 @@
+       return <div style={pageStyle}><CenterMsg c={c} text="Loading..." /><DiagnosticsPanel /><VersionFooter /></div>;
+     }
+ 
+-    // Age gate overlay
+-    if (showAgeGate) {
+-      return (
+-        <div style={pageStyle}>
+-          <AgeGate c={c} onConfirm={confirmAge} onCancel={() => setShowAgeGate(false)} />
+-          <DiagnosticsPanel /><VersionFooter />
+-        </div>
+-      );
+-    }
++    const showHome = view === "home";
++    const showCodeDrop = view === "codedrop" ? isHost : false;
++    const showGiveaway = view === "giveaway" ? isHost : false;
++    const showBranding = view === "branding" ? isHost : false;
++    const showStats = view === "stats" ? isHost : false;
+ 
+     return (
+       <div style={pageStyle}>
+-        {view === "home" ? <Home
++        {showHome ? <Home
+           setView={setView} c={c} isHost={isHost}
+           authUser={authUser} communityMode={communityMode}
+           onGoogleSignIn={startGoogleSignIn} onGuestMode={enterGuestMode}
+           onSignOut={signOutCommunity} authBusy={authBusy} authError={authError}
+         /> : null}
+-        {view === "codedrop" && isHost ? <CodeDropApp setView={setView} c={c} /> : null}
+-        {view === "giveaway" && isHost ? <GiveawayApp setView={setView} c={c} /> : null}
+-        {view === "branding" && isHost ? <BrandingSettings c={c} setView={setView} /> : null}
+-        {view === "stats" && isHost ? <MeetupStatsApp c={c} setView={setView} /> : null}
++        {showCodeDrop ? <CodeDropApp setView={setView} c={c} /> : null}
++        {showGiveaway ? <GiveawayApp setView={setView} c={c} /> : null}
++        {showBranding ? <BrandingSettings c={c} setView={setView} /> : null}
++        {showStats ? <MeetupStatsApp c={c} setView={setView} /> : null}
+         <DiagnosticsPanel />
+         <VersionFooter />
+       </div>
