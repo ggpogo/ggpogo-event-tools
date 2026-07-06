@@ -17,6 +17,11 @@
     padding: 12px 14px; font-family: 'Fredoka', sans-serif; font-size: 15px; font-weight: 500;
     width: 100%; max-width: 100%; outline: none; box-sizing: border-box; min-width: 0;
   }
+  #ggpogo-event-tools-root select {
+    padding-right: 38px; -webkit-appearance: none; -moz-appearance: none; appearance: none;
+    background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%230D2D52' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
+    background-repeat: no-repeat; background-position: right 12px center; background-size: 16px;
+  }
   #ggpogo-event-tools-root input[type="date"] {
     -webkit-appearance: none; appearance: none; max-width: 100%;
   }
@@ -123,6 +128,95 @@
   };
 
   function genId() { return Math.random().toString(36).slice(2, 10); }
+
+  // ───────────────────────────────────────────────────────────
+  // PASSPORT — constants, geolocation, and Pokemon icon lookup.
+  // ───────────────────────────────────────────────────────────
+
+  // Default check-in location: Garden Grove Park, 9301 Westminster Blvd.
+  // Hosts can override per-session; this is only the pre-filled default.
+  const DEFAULT_EVENT_LOCATION = { lat: 33.7620, lng: -117.9672, label: "Garden Grove Park" };
+  const CHECKIN_RADIUS_METERS = 600;
+
+  // Event types shared with the public Events page categories (see
+  // events-sections-v2.4.html) so passport badge grouping uses the same
+  // names attendees already recognize. "communityDay" and "specialEvent"
+  // always award a named badge automatically; other types are host-toggled
+  // in Passport Settings (settings:passport.badgeTypesEnabled).
+  const EVENT_TYPES = [
+    { id: "communityDay", label: "Community day", color: "grassMid", colorDeep: "grassDeep", alwaysNamed: true },
+    { id: "specialEvent", label: "Special events", color: "orange", colorDeep: "orangeDeep", alwaysNamed: true },
+    { id: "raidHour", label: "Raid hour", color: "blue", colorDeep: "blueDeep", alwaysNamed: false },
+    { id: "custom", label: "Custom event", color: "purple", colorDeep: "purpleDeep", alwaysNamed: false },
+  ];
+  function eventTypeInfo(typeId) { return EVENT_TYPES.find(t => t.id === typeId) || EVENT_TYPES[3]; }
+
+  // Haversine distance in meters between two lat/lng points. Used to gate
+  // the self check-in button to within CHECKIN_RADIUS_METERS of the
+  // session's location.
+  function distanceMeters(lat1, lng1, lat2, lng2) {
+    const R = 6371000;
+    const toRad = (d) => (d * Math.PI) / 180;
+    const dLat = toRad(lat2 - lat1);
+    const dLng = toRad(lng2 - lng1);
+    const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  }
+
+  // Turns a display name into the icon repo's filename convention
+  // (see ggpogo-pokemon-icons README): lowercase, spaces -> hyphens,
+  // periods/apostrophes dropped, gender symbols -> -f/-m.
+  function pokemonNameToFilename(name) {
+    return name
+      .trim()
+      .toLowerCase()
+      .replace(/♀/g, "-f")
+      .replace(/♂/g, "-m")
+      .replace(/['.]/g, "")
+      .replace(/\s+/g, "-");
+  }
+
+  const POKEMON_ICON_BASE = "https://raw.githubusercontent.com/ggpogo/ggpogo-pokemon-icons/main/";
+  const DEFAULT_BADGE_ICON = "https://ggpogo.com/wp-content/uploads/2026/05/icon-updated.png";
+
+  function pokemonIconUrl(name) {
+    if (!name || !name.trim()) return null;
+    return POKEMON_ICON_BASE + pokemonNameToFilename(name) + ".png";
+  }
+
+  // Best-effort parse of a Pokemon name out of a free-text event name,
+  // e.g. "Sobble Community Day" -> "Sobble". Takes the leading run of
+  // capitalized word(s) before a known event-type keyword. This is a
+  // convenience default only — hosts see and can override the detected
+  // icon before starting the session (see PassportEventSetup), so a
+  // wrong or missed guess just falls back to the GGPoGo logo rather
+  // than showing an incorrect icon unreviewed.
+  const EVENT_KEYWORD_SPLIT = /\b(community day|raid day|raid hour|spotlight hour|go fest|go tour|max battle day|event)\b/i;
+  function guessPokemonNameFromEventName(eventName) {
+    if (!eventName) return "";
+    const parts = eventName.split(EVENT_KEYWORD_SPLIT);
+    const lead = (parts[0] || "").trim();
+    // Only treat it as a Pokemon guess if it's a short, plausible name
+    // (avoids e.g. "Garden Grove Raid Hour" guessing "Garden Grove").
+    if (!lead || lead.split(/\s+/).length > 2) return "";
+    return lead;
+  }
+
+  // Best-effort guess of an EVENT_TYPES id from a Campfire event's title,
+  // e.g. "Sobble Community Day" -> "communityDay". Same safety-net pattern
+  // as the Pokemon icon guess: this only pre-selects the Event type
+  // dropdown, which stays fully visible and editable, so a wrong or
+  // missed guess just means the host picks the right one themselves —
+  // never an incorrect type silently applied unreviewed.
+  function guessEventTypeFromName(eventName) {
+    if (!eventName) return null;
+    const lower = eventName.toLowerCase();
+    if (/community day/.test(lower)) return "communityDay";
+    if (/raid hour/.test(lower)) return "raidHour";
+    if (/raid day|go fest|go tour|max battle day|spotlight hour/.test(lower)) return "specialEvent";
+    return null;
+  }
+
 
   // Rotating claim token — v2.12.23 security fix. A static session ID in
   // the QR/link never expired for the life of the session, so a bookmarked
@@ -422,6 +516,74 @@
   // excluded from the attendee-facing pool and flagged in Manage Codes.
   function isExpired(code) {
     return code.expiresAt ? Date.now() > code.expiresAt : false;
+  }
+
+  // ───────────────────────────────────────────────────────────
+  // PASSPORT STORAGE — object maps keyed by id (per-item security
+  // rules, same reasoning as Code Drop), converted to arrays for
+  // rendering. Same explicit-field-mapping discipline as
+  // codesObjToArray/codesArrayToObj: any new field added to a
+  // passport record MUST be added to both directions below or it
+  // will be silently dropped on round-trip.
+  // ───────────────────────────────────────────────────────────
+
+  // A user's earned badges, stored at users/{uid}/passport/badges/{badgeId}.
+  // Named badges snapshot their own label/icon/eventType/date AT EARN TIME —
+  // deliberately, so that if a host later edits or deletes the source
+  // pp:events/{eventId} record, badges already awarded are unaffected
+  // (badges are permanent once earned, by design).
+  function badgesObjToArray(obj) {
+    if (!obj) return [];
+    return Object.entries(obj).map(([id, v]) => ({
+      id,
+      kind: v.kind === "milestone" ? "milestone" : "named",
+      label: v.label || "",
+      iconUrl: v.iconUrl || DEFAULT_BADGE_ICON,
+      eventType: v.eventType || null,
+      earnedAt: v.earnedAt || null,
+      threshold: typeof v.threshold === "number" ? v.threshold : null,
+    }));
+  }
+  function badgesArrayToObj(arr) {
+    const obj = {};
+    arr.forEach(x => {
+      obj[x.id] = {
+        kind: x.kind === "milestone" ? "milestone" : "named",
+        label: x.label || "",
+        iconUrl: x.iconUrl || DEFAULT_BADGE_ICON,
+        eventType: x.eventType || null,
+        earnedAt: x.earnedAt || null,
+        threshold: typeof x.threshold === "number" ? x.threshold : null,
+      };
+    });
+    return obj;
+  }
+
+  // A user's check-in log, stored at users/{uid}/passport/checkIns/{eventId}.
+  // Keyed by eventId (not push-key) so a repeat check-in attempt on the
+  // same event is naturally idempotent — writing to the same key just
+  // overwrites, never creates a duplicate or double-counts a milestone.
+  function checkInsObjToArray(obj) {
+    if (!obj) return [];
+    return Object.entries(obj).map(([eventId, v]) => ({
+      eventId,
+      eventName: v.eventName || "",
+      eventType: v.eventType || "custom",
+      timestamp: v.timestamp || null,
+      method: v.method === "host_manual" ? "host_manual" : "geo",
+    }));
+  }
+  function checkInsArrayToObj(arr) {
+    const obj = {};
+    arr.forEach(x => {
+      obj[x.eventId] = {
+        eventName: x.eventName || "",
+        eventType: x.eventType || "custom",
+        timestamp: x.timestamp || null,
+        method: x.method === "host_manual" ? "host_manual" : "geo",
+      };
+    });
+    return obj;
   }
   // Attendee-side: claim ONE code via a transaction on that single node.
   // The security rule requires data.claimed == false at write time, so if
@@ -892,6 +1054,8 @@
     const [gwSession, setGwSession] = useState(undefined);
     const [prizes, setPrizes] = useState([]);
     const [entrantCount, setEntrantCount] = useState(0);
+    const [ppSession, setPpSession] = useState(undefined);
+    const [ppCheckInLog, setPpCheckInLog] = useState([]);
     const [lastCdSession, setLastCdSession] = useState(null); // most recent history entry
     const [lastGwSession, setLastGwSession] = useState(null);
     const [lastEvent, setLastEvent] = useState(null);
@@ -919,6 +1083,8 @@
         FB.watch("gw:session", setGwSession),
         FB.watch("gw:prizes", (val) => setPrizes(prizesObjToArray(val))),
         FB.watch("gw:entrants", (val) => setEntrantCount(val ? Object.keys(val).length : 0)),
+        FB.watch("pp:session", setPpSession),
+        FB.watch("pp:checkInLog", (val) => setPpCheckInLog(val ? Object.values(val) : [])),
         FB.watch("cd:history", (val) => {
           if (!val) { setLastCdSession(null); setDashCodeMap(new Map()); return; }
           const entries = Object.values(val);
@@ -937,7 +1103,7 @@
       return () => unwatchers.forEach(u => u());
     }, []);
 
-    const loading = cdSession === undefined || gwSession === undefined;
+    const loading = cdSession === undefined || gwSession === undefined || ppSession === undefined;
     const [exporting, setExporting] = useState(false);
 
     // Export everything: pulls all-time Code Drop history, Giveaway
@@ -1007,6 +1173,10 @@
     const gwActive = !!gwSession;
     const prizesReady = prizes.reduce((sum, p) => sum + (p.remaining ?? p.quantity ?? 0), 0);
     const showLastGw = !!lastGwSession ? !gwActive : false;
+
+    // Passport status
+    const ppActive = !!ppSession;
+    const ppCheckInCount = ppCheckInLog.length;
 
     return (
       <div style={{ maxWidth: 460, margin: "0 auto" }}>
@@ -1079,23 +1249,46 @@
               </StickerBtn>
             </Paper>
 
+            {/* ─── Passport status ─── */}
+            <Paper c={c} accent={c.purple} style={{ padding: "18px 20px" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <IconBox emoji="🎫" bg={c.purple + "33"} border={c.purpleDeep} size={40} fontSize={20} />
+                  <div style={{ fontWeight: 700, fontSize: 18, color: c.ink }}>Passport</div>
+                </div>
+                <StatusPill c={c} active={ppActive} paused={false} />
+              </div>
+              <div style={{ fontSize: 13, color: c.inkMute, marginBottom: 12 }}>
+                {ppActive ? `${ppCheckInCount} check-in${ppCheckInCount !== 1 ? 's' : ''} so far` : "Self check-in with badges"}
+              </div>
+              <StickerBtn fill={c.purple} shadow={c.purpleDeep} onClick={() => setView("passport")} style={{ width: "100%", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+                {ppActive ? (<><Icon name="play" size={16} /> Open session</>) : (<><Icon name="add" size={16} /> Start check-in</>)}
+              </StickerBtn>
+            </Paper>
+
             {/* ─── Last Event Stats ─── */}
             {lastEvent ? (
               <LastEventStatsCard c={c} event={lastEvent} codeCountMap={dashCodeMap} prizeCountMap={dashPrizeMap} compact />
             ) : null}
 
             {/* ─── Quick links ─── */}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
               <div onClick={() => setView("branding")} style={{ cursor: "pointer" }}>
-                <Paper c={c} accent={c.sun} style={{ padding: "14px 16px", textAlign: "center" }}>
-                  <IconBox emoji="🎨" bg={c.sun + "33"} border={c.sunDeep} size={40} fontSize={20} />
-                  <div style={{ fontWeight: 700, fontSize: 14, color: c.ink, marginTop: 8 }}>Branding</div>
+                <Paper c={c} accent={c.sun} style={{ padding: "14px 10px", textAlign: "center" }}>
+                  <IconBox emoji="🎨" bg={c.sun + "33"} border={c.sunDeep} size={36} fontSize={18} />
+                  <div style={{ fontWeight: 700, fontSize: 12, color: c.ink, marginTop: 8 }}>Branding</div>
                 </Paper>
               </div>
               <div onClick={() => setView("stats")} style={{ cursor: "pointer" }}>
-                <Paper c={c} accent={c.grassMid} style={{ padding: "14px 16px", textAlign: "center" }}>
-                  <IconBox emoji="📊" bg={c.grassMid + "33"} border={c.grassDeep} size={40} fontSize={20} />
-                  <div style={{ fontWeight: 700, fontSize: 14, color: c.ink, marginTop: 8 }}>Meetup Stats</div>
+                <Paper c={c} accent={c.grassMid} style={{ padding: "14px 10px", textAlign: "center" }}>
+                  <IconBox emoji="📊" bg={c.grassMid + "33"} border={c.grassDeep} size={36} fontSize={18} />
+                  <div style={{ fontWeight: 700, fontSize: 12, color: c.ink, marginTop: 8 }}>Meetup Stats</div>
+                </Paper>
+              </div>
+              <div onClick={() => setView("passportsettings")} style={{ cursor: "pointer" }}>
+                <Paper c={c} accent={c.purple} style={{ padding: "14px 10px", textAlign: "center" }}>
+                  <IconBox emoji="🏅" bg={c.purple + "33"} border={c.purpleDeep} size={36} fontSize={18} />
+                  <div style={{ fontWeight: 700, fontSize: 12, color: c.ink, marginTop: 8 }}>Passport settings</div>
                 </Paper>
               </div>
             </div>
@@ -1547,19 +1740,22 @@
     const [logoFailed, setLogoFailed] = useState(false);
     const [cdSession, setCdSession] = useState(undefined);
     const [gwSession, setGwSession] = useState(undefined);
+    const [ppSession, setPpSession] = useState(undefined);
     const savedName = getSavedTrainerName();
 
     useEffect(() => {
       const u1 = FB.watch("cd:session", (val) => setCdSession(val || null));
       const u2 = FB.watch("gw:session", (val) => setGwSession(val || null));
-      return () => { u1(); u2(); };
+      const u3 = FB.watch("pp:session", (val) => setPpSession(val || null));
+      return () => { u1(); u2(); u3(); };
     }, []);
 
     const showCustomLogo = c.logoImage ? !logoFailed : c.logoImage;
-    const loading = cdSession === undefined || gwSession === undefined;
+    const loading = cdSession === undefined || gwSession === undefined || ppSession === undefined;
     const cdActive = !!cdSession;
     const gwActive = !!gwSession;
-    const anyActive = cdActive || gwActive;
+    const ppActive = !!ppSession;
+    const anyActive = cdActive || gwActive || ppActive;
 
     // Campfire deep link built at runtime to avoid literal & in source
     const campfireUrl = useMemo(() => {
@@ -1624,16 +1820,26 @@
           {/* Greeting */}
           <h2 style={{ fontFamily: "Fredoka, sans-serif", fontSize: 20, fontWeight: 700, color: c.ink, marginBottom: 6 }}>{greeting}</h2>
 
-          {/* My Activity link — signed-in only */}
+          {/* My Activity / My Passport links — signed-in only */}
           {isSignedIn ? (
-            <button onClick={() => setView("activity")} style={{
-              background: c.blue + "14", border: `1.5px solid ${c.blue}33`, borderRadius: 10,
-              padding: "8px 16px", marginBottom: 14, cursor: "pointer",
-              display: "inline-flex", alignItems: "center", gap: 6,
-              fontFamily: "Fredoka, sans-serif", fontWeight: 600, fontSize: 12, color: c.blue,
-            }}>
-              <Icon name="list" size={13} /> My Activity
-            </button>
+            <div style={{ display: "flex", justifyContent: "center", gap: 8, marginBottom: 14 }}>
+              <button onClick={() => setView("activity")} style={{
+                background: c.blue + "14", border: `1.5px solid ${c.blue}33`, borderRadius: 10,
+                padding: "8px 16px", cursor: "pointer",
+                display: "inline-flex", alignItems: "center", gap: 6,
+                fontFamily: "Fredoka, sans-serif", fontWeight: 600, fontSize: 12, color: c.blue,
+              }}>
+                <Icon name="list" size={13} /> My Activity
+              </button>
+              <button onClick={() => setView("mypassport")} style={{
+                background: c.purple + "14", border: `1.5px solid ${c.purple}33`, borderRadius: 10,
+                padding: "8px 16px", cursor: "pointer",
+                display: "inline-flex", alignItems: "center", gap: 6,
+                fontFamily: "Fredoka, sans-serif", fontWeight: 600, fontSize: 12, color: c.purple,
+              }}>
+                <Icon name="trophy" size={13} /> My Passport
+              </button>
+            </div>
           ) : null}
 
           {/* Guest banner */}
@@ -1677,6 +1883,9 @@
                       </div>
                     </Paper>
                   </div>
+                ) : null}
+                {ppActive ? (
+                  <PassportCheckIn c={c} session={ppSession} authUser={isSignedIn ? authUser : null} onGoogleSignIn={onGoogleSignIn} authBusy={authBusy} />
                 ) : null}
               </div>
             </>
@@ -5362,6 +5571,957 @@
 
 
   // ───────────────────────────────────────────────────────────
+  // PASSPORT — self check-in (geolocation-gated) + host session
+  // controls + named-badge authoring + milestone/named badge
+  // awarding. Independent session lifecycle from Code Drop and
+  // Giveaway (pp:session), so a host can run check-in on its own.
+  // ───────────────────────────────────────────────────────────
+
+  // Awards badges for a completed check-in. Runs on the ATTENDEE'S
+  // device right after a successful check-in write, since that's the
+  // only context with both the signed-in uid and the session's event
+  // details in hand. Idempotent by construction: milestone badge ids
+  // are threshold-based ("milestone-5") and named badge ids are
+  // event-based ("named-{eventId}"), so re-running this against an
+  // event already checked into cannot create duplicates.
+  async function awardPassportBadges(uid, session, checkInCount) {
+    const existingBadgesRaw = await FB.get(`users/${uid}/passport/badges`);
+    const existingBadges = badgesObjToArray(existingBadgesRaw);
+    const existingIds = new Set(existingBadges.map(b => b.id));
+    const updates = {};
+
+    // Milestone badges: unsplit by event type, based on total check-in count.
+    const settingsRaw = await FB.get("settings:passport");
+    const thresholds = settingsRaw ? (Array.isArray(settingsRaw.milestoneThresholds)
+      ? settingsRaw.milestoneThresholds
+      : [1, 5, 10, 25]) : [1, 5, 10, 25];
+    thresholds.forEach(t => {
+      const id = `milestone-${t}`;
+      if (checkInCount >= t) { if (!existingIds.has(id)) {
+        updates[`users/${uid}/passport/badges/${id}`] = {
+          kind: "milestone", label: `${t} check-in${t !== 1 ? 's' : ''}`,
+          iconUrl: DEFAULT_BADGE_ICON, eventType: null, earnedAt: Date.now(), threshold: t,
+        };
+      } }
+    });
+
+    // Named badge: only if this session has one configured.
+    if (session.badgeEnabled) {
+      const id = `named-${session.id}`;
+      if (!existingIds.has(id)) {
+        updates[`users/${uid}/passport/badges/${id}`] = {
+          kind: "named", label: session.eventName || "Event badge",
+          iconUrl: session.iconUrl || DEFAULT_BADGE_ICON,
+          eventType: session.eventType || "custom", earnedAt: Date.now(), threshold: null,
+        };
+      }
+    }
+
+    if (Object.keys(updates).length) await FB.update(updates);
+  }
+
+  // Writes the check-in record and triggers badge awarding. Shared by
+  // both the attendee's self check-in (geo-gated) and the host's manual
+  // check-in (retroactive/fallback) — same effect either way, just a
+  // different `method` tag for the record.
+  async function recordCheckIn(uid, session, method) {
+    await FB.set(`users/${uid}/passport/checkIns/${session.id}`, {
+      eventName: session.eventName || "", eventType: session.eventType || "custom",
+      timestamp: Date.now(), method,
+    });
+    const allCheckInsRaw = await FB.get(`users/${uid}/passport/checkIns`);
+    const count = allCheckInsRaw ? Object.keys(allCheckInsRaw).length : 1;
+    await awardPassportBadges(uid, session, count);
+  }
+
+  function PassportApp({ setView, c }) {
+    const [screen, setScreen] = useState("dashboard"); // dashboard | session | history
+    const [session, setSession] = useState(undefined); // undefined = loading, null = no active session
+    const [loading, setLoading] = useState(true);
+
+    // Session-start form state
+    const [eventName, setEventName] = useState("");
+    const [eventType, setEventType] = useState("communityDay");
+    const [badgeEnabled, setBadgeEnabled] = useState(true);
+    const [pokemonName, setPokemonName] = useState("");
+    const [iconOverrideUrl, setIconOverrideUrl] = useState("");
+    const [lat, setLat] = useState(DEFAULT_EVENT_LOCATION.lat);
+    const [lng, setLng] = useState(DEFAULT_EVENT_LOCATION.lng);
+    const [locationLabel, setLocationLabel] = useState(DEFAULT_EVENT_LOCATION.label);
+    const [showLocationEdit, setShowLocationEdit] = useState(false);
+    const [badgeTypesEnabled, setBadgeTypesEnabled] = useState({});
+    const [cachedEvents, setCachedEvents] = useState([]);
+    const [selectedEventId, setSelectedEventId] = useState("");
+    const [typeManuallySet, setTypeManuallySet] = useState(false);
+
+    useEffect(() => {
+      const unwatch = FB.watch("pp:session", (val) => {
+        setSession(val || null);
+        setLoading(false);
+        if (val) { if (screen === "dashboard") setScreen("session"); }
+      });
+      return unwatch;
+    }, []);
+
+    useEffect(() => {
+      (async () => {
+        const settings = await FB.get("settings:passport");
+        setBadgeTypesEnabled(settings ? (settings.badgeTypesEnabled || {}) : {});
+      })();
+    }, []);
+
+    // Load cached Campfire events for the event picker — same source
+    // Code Drop and Giveaway already use (stats:cache.events), so the
+    // dropdown here shows the same list without a separate fetch.
+    useEffect(() => {
+      (async () => {
+        const cache = await FB.get("stats:cache");
+        if (cache ? cache.events : false) {
+          setCachedEvents(cache.events);
+          const closest = findClosestEvent(cache.events, Date.now());
+          if (closest) selectCampfireEvent(closest.id, cache.events);
+        }
+      })();
+    }, []);
+
+    // Selecting a Campfire event fills the name AND suggests an event
+    // type from that event's title — same safety-net pattern as the
+    // Pokemon icon: this is a starting point the host can freely
+    // override, never applied silently.
+    const selectCampfireEvent = (id, eventsList) => {
+      const list = eventsList || cachedEvents;
+      const ev = list.find(x => x.id === id);
+      setSelectedEventId(ev ? ev.id : "");
+      setEventName(ev ? ev.name : "");
+      if (ev) { if (!typeManuallySet) {
+        const guessedType = guessEventTypeFromName(ev.name);
+        if (guessedType) setEventType(guessedType);
+      } }
+    };
+
+    // A type "always" awards a named badge (Community day / Special
+    // events, by design) OR the host has toggled it on in Passport
+    // Settings for other types (Raid hour / Custom).
+    const typeAlwaysNamed = eventTypeInfo(eventType).alwaysNamed;
+    const typeToggledOn = !!badgeTypesEnabled[eventType];
+    const effectiveBadgeEnabled = typeAlwaysNamed ? true : (badgeEnabled ? typeToggledOn : false);
+
+    // Live preview of the auto-detected Pokemon icon as the host types
+    // the event name — this is the safety net for auto-detect: the host
+    // sees exactly what icon will be used and can override it before
+    // starting the session, rather than finding out after the fact.
+    const detectedPokemon = useMemo(() => guessPokemonNameFromEventName(eventName), [eventName]);
+    useEffect(() => { setPokemonName(detectedPokemon); }, [detectedPokemon]);
+    const previewIconUrl = iconOverrideUrl.trim() || pokemonIconUrl(pokemonName) || DEFAULT_BADGE_ICON;
+    const [previewFailed, setPreviewFailed] = useState(false);
+    useEffect(() => { setPreviewFailed(false); }, [previewIconUrl]);
+
+    const startSession = async () => {
+      const existing = await FB.get("pp:session");
+      if (existing) { setScreen("session"); return; }
+      const sess = {
+        id: genId(), startedAt: Date.now(),
+        eventName: eventName.trim() || "Event", eventType,
+        lat: Number(lat), lng: Number(lng), radiusMeters: CHECKIN_RADIUS_METERS, locationLabel,
+        badgeEnabled: effectiveBadgeEnabled,
+        iconUrl: effectiveBadgeEnabled ? (previewFailed ? DEFAULT_BADGE_ICON : previewIconUrl) : null,
+      };
+      await FB.set("pp:session", sess);
+      await FB.set("pp:checkInLog", {});
+      setScreen("session");
+    };
+
+    const endSession = async () => {
+      const current = await FB.get("pp:session");
+      const logRaw = await FB.get("pp:checkInLog");
+      if (current) {
+        const historyId = genId();
+        await FB.set(`pp:history/${historyId}`, {
+          ...current,
+          endedAt: Date.now(),
+          checkIns: logRaw ? Object.values(logRaw) : [],
+        });
+      }
+      await FB.set("pp:session", null);
+      await FB.set("pp:checkInLog", null);
+      setScreen("dashboard");
+    };
+
+    if (loading) return <CenterMsg c={c} text="Loading…" />;
+
+    if (screen === "session") { if (session) {
+      return <PassportSession c={c} session={session} onEnd={endSession} onExit={() => setScreen("dashboard")} />;
+    } }
+    if (screen === "history") return <PassportHistory c={c} onBack={() => setScreen("dashboard")} />;
+
+    return (
+      <div style={{ maxWidth: 460, margin: "0 auto" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20 }}>
+          <BackButton c={c} onClick={() => setView("home")} />
+          <div style={{ flex: 1 }}>
+            <div style={{ fontWeight: 700, fontSize: 22, color: "#fff", textShadow: "0 2px 4px rgba(0,0,0,0.25)", lineHeight: 1.1 }}>Passport</div>
+            <div style={{ fontSize: 13, color: c.grassMid, fontWeight: 600, marginTop: 2 }}>Check-ins &amp; badges</div>
+          </div>
+          <button onClick={() => setScreen("history")} style={{ background: "transparent", border: "none", cursor: "pointer", padding: 8 }} aria-label="Check-in history">
+            <div style={{ width: 40, height: 40, background: "#fff", borderRadius: 12, border: "3px solid #fff", boxShadow: `0 0 0 2px ${c.blueDeep}, 0 3px 0 ${c.blueDeep}`, display: "flex", alignItems: "center", justifyContent: "center", color: c.ink }}>
+              <Icon name="list" size={17} />
+            </div>
+          </button>
+        </div>
+
+        <Paper c={c} accent={c.grassMid} style={{ marginBottom: 16 }}>
+          <div style={{ fontWeight: 700, fontSize: 16, color: c.ink, marginBottom: 12 }}>Start check-in session</div>
+
+          <div style={{ marginBottom: 10 }}>
+            <div style={{ fontSize: 11, color: c.inkMute, fontWeight: 600, marginBottom: 4 }}>Event</div>
+            {cachedEvents.length > 0 ? (
+              <select value={selectedEventId} onChange={e => selectCampfireEvent(e.target.value)}>
+                <option value="">Type a name instead…</option>
+                {cachedEvents.map(ev => (
+                  <option key={ev.id} value={ev.id}>{ev.name} — {new Date(ev.time).toLocaleDateString()}</option>
+                ))}
+              </select>
+            ) : null}
+            {(!cachedEvents.length || !selectedEventId) ? (
+              <input value={eventName} onChange={e => { setEventName(e.target.value); setSelectedEventId(""); }} placeholder="e.g. Sobble Community Day" style={cachedEvents.length ? { marginTop: 8 } : {}} />
+            ) : null}
+            {!cachedEvents.length ? (
+              <div style={{ fontSize: 10, color: c.inkMute, marginTop: 4 }}>No cached Campfire events yet — fetch data in Meetup Stats to enable the dropdown.</div>
+            ) : null}
+          </div>
+
+          <div style={{ marginBottom: 10 }}>
+            <div style={{ fontSize: 11, color: c.inkMute, fontWeight: 600, marginBottom: 4 }}>Event type</div>
+            <select value={eventType} onChange={e => { setEventType(e.target.value); setTypeManuallySet(true); }}>
+              {EVENT_TYPES.map(t => <option key={t.id} value={t.id}>{t.label}</option>)}
+            </select>
+          </div>
+
+          {/* Named-badge toggle — hidden entirely for always-on types
+              (Community day / Special events show a plain confirmation
+              line instead, since there's no real choice to present). */}
+          {typeAlwaysNamed ? (
+            <div style={{ fontSize: 12, color: c.grassDeep, fontWeight: 600, marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}>
+              <Icon name="check" size={13} /> This event gets its own badge automatically
+            </div>
+          ) : (
+            <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: c.inkSoft, fontWeight: 600, cursor: typeToggledOn ? "pointer" : "not-allowed", marginBottom: 10, opacity: typeToggledOn ? 1 : 0.5 }}>
+              <input type="checkbox" checked={badgeEnabled ? typeToggledOn : false} disabled={!typeToggledOn} onChange={e => setBadgeEnabled(e.target.checked)} style={{ width: "auto" }} />
+              Give this event its own badge
+            </label>
+          )}
+          {typeAlwaysNamed ? false : !typeToggledOn ? (
+            <div style={{ fontSize: 11, color: c.inkMute, marginBottom: 10, lineHeight: 1.5 }}>
+              {eventTypeInfo(eventType).label} badges are turned off. Enable them in Passport Settings to use this here.
+            </div>
+          ) : null}
+
+          {/* Badge icon preview + override — the safety net for the
+              auto-detected Pokemon name, shown only when a badge will
+              actually be created for this session. */}
+          {effectiveBadgeEnabled ? (
+            <div style={{ background: c.paperDim, borderRadius: 14, padding: "12px 14px", marginBottom: 10 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                <div style={{ width: 48, height: 48, borderRadius: "50%", background: "#fff", border: `3px solid ${c.paperEdge}`, display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", flexShrink: 0 }}>
+                  <img src={previewFailed ? DEFAULT_BADGE_ICON : previewIconUrl} onError={() => setPreviewFailed(true)} alt="" style={{ width: 30, height: 30, objectFit: "contain" }} />
+                </div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 11, color: c.inkMute, fontWeight: 600 }}>Badge icon</div>
+                  <input value={pokemonName} onChange={e => { setPokemonName(e.target.value); setIconOverrideUrl(""); }} placeholder="Pokemon name" style={{ fontSize: 13, padding: "6px 10px", marginTop: 2 }} />
+                </div>
+              </div>
+              <details style={{ marginTop: 8 }}>
+                <summary style={{ fontSize: 11, color: c.inkMute, fontWeight: 700, cursor: "pointer" }}>Use a custom image instead</summary>
+                <input value={iconOverrideUrl} onChange={e => setIconOverrideUrl(e.target.value)} placeholder="https://..." style={{ fontSize: 12, marginTop: 6 }} />
+              </details>
+              <div style={{ fontSize: 10, color: c.inkMute, marginTop: 6, lineHeight: 1.4 }}>
+                Not found yet? The GGPoGo logo will be used until this Pokemon's icon is added to the library.
+              </div>
+            </div>
+          ) : null}
+
+          <div style={{ marginBottom: 10 }}>
+            <button onClick={() => setShowLocationEdit(!showLocationEdit)} style={{ background: "none", border: "none", color: c.blue, fontWeight: 700, fontSize: 12, cursor: "pointer", textDecoration: "underline", padding: 0 }}>
+              {showLocationEdit ? "Hide location" : `Location: ${locationLabel} (change)`}
+            </button>
+          </div>
+          {showLocationEdit ? (
+            <div className="gg-date-row" style={{ marginBottom: 10 }}>
+              <div>
+                <div style={{ fontSize: 11, color: c.inkMute, fontWeight: 600, marginBottom: 4 }}>Latitude</div>
+                <input type="number" step="0.0001" value={lat} onChange={e => setLat(e.target.value)} />
+              </div>
+              <div>
+                <div style={{ fontSize: 11, color: c.inkMute, fontWeight: 600, marginBottom: 4 }}>Longitude</div>
+                <input type="number" step="0.0001" value={lng} onChange={e => setLng(e.target.value)} />
+              </div>
+            </div>
+          ) : null}
+          {showLocationEdit ? (
+            <input value={locationLabel} onChange={e => setLocationLabel(e.target.value)} placeholder="Location name" style={{ marginBottom: 10 }} />
+          ) : null}
+
+          <StickerBtn fill={c.grassMid} shadow={c.grassDeep} onClick={startSession} style={{ width: "100%" }}>
+            Start session
+          </StickerBtn>
+        </Paper>
+      </div>
+    );
+  }
+
+  // ───────────────────────────────────────────────────────────
+  // PASSPORT SESSION — host's live view while check-in is running.
+  // Shows the live check-in count and a manual-add fallback for
+  // attendees whose geolocation fails or is denied.
+  // ───────────────────────────────────────────────────────────
+  function PassportSession({ c, session, onEnd, onExit }) {
+    const [log, setLog] = useState([]);
+    const { confirmState, requestConfirm, handleCancel, handleConfirm } = useConfirm();
+    const [manualName, setManualName] = useState("");
+    const [manualMsg, setManualMsg] = useState("");
+
+    useEffect(() => {
+      const unwatch = FB.watch("pp:checkInLog", (val) => {
+        const arr = val ? Object.values(val) : [];
+        arr.sort((a, b) => (b.time || 0) - (a.time || 0));
+        setLog(arr);
+      });
+      return unwatch;
+    }, []);
+
+    // Host-manual fallback: the host's device only has a typed name, not
+    // the attendee's uid, so it CANNOT write directly into that specific
+    // attendee's users/{uid}/passport tree — Firebase has no by-name user
+    // lookup wired up (would need a new index/query, not built here). This
+    // logs the name to pp:checkInLog as the host's own record for the
+    // session (mirrors Code Drop's sessionLog), and separately gives the
+    // host a direct link to hand the attendee so THEY complete their own
+    // check-in, on their own device with their own uid — a real fulfillment
+    // of "retroactively check someone in," not just a note.
+    const logManualNote = async () => {
+      const name = manualName.trim();
+      if (!name) return;
+      await FB.push("pp:checkInLog", { name, time: Date.now(), method: "host_manual_note" });
+      setManualName("");
+      setManualMsg(`✓ Noted ${name}. Send them the check-in link below so it credits their own passport.`);
+      setTimeout(() => setManualMsg(""), 6000);
+    };
+
+    const checkInLink = window.location.pathname + "?pp_checkin=" + session.id;
+    const [linkCopied, setLinkCopied] = useState(false);
+    const copyLink = async () => {
+      try {
+        await navigator.clipboard.writeText(window.location.origin + checkInLink);
+        setLinkCopied(true);
+        setTimeout(() => setLinkCopied(false), 2500);
+      } catch (e) { /* clipboard unavailable — link is still visible to copy manually */ }
+    };
+
+    return (
+      <div style={{ maxWidth: 460, margin: "0 auto" }}>
+        <ConfirmModal confirmState={confirmState} onCancel={handleCancel} onConfirm={handleConfirm} />
+        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20 }}>
+          <BackButton c={c} onClick={onExit} />
+          <div style={{ flex: 1 }}>
+            <div style={{ fontWeight: 700, fontSize: 20, color: "#fff", textShadow: "0 2px 4px rgba(0,0,0,0.25)", lineHeight: 1.1 }}>{session.eventName}</div>
+            <div style={{ fontSize: 13, color: c.grassMid, fontWeight: 600, marginTop: 2 }}>{eventTypeInfo(session.eventType).label} &middot; {session.locationLabel}</div>
+          </div>
+        </div>
+
+        <Paper c={c} accent={c.grassMid} style={{ marginBottom: 16, textAlign: "center" }}>
+          <div style={{ fontSize: 12, color: c.inkMute, fontWeight: 700, letterSpacing: 0.5, marginBottom: 4 }}>CHECK-INS</div>
+          <div style={{ fontSize: 40, fontWeight: 700, color: c.ink }}>{log.length}</div>
+        </Paper>
+
+        <Paper c={c} style={{ marginBottom: 16 }}>
+          <div style={{ fontWeight: 700, fontSize: 14, color: c.ink, marginBottom: 8 }}>Trouble checking in?</div>
+          <div style={{ fontSize: 11, color: c.inkMute, lineHeight: 1.5, marginBottom: 10 }}>
+            Send this link to anyone whose location check fails. Opening it on their own device credits their own passport directly.
+          </div>
+          <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+            <input value={window.location.origin + checkInLink} readOnly onClick={e => e.target.select()} style={{ flex: 1, fontSize: 11, fontFamily: "monospace" }} />
+            <StickerBtn fill={c.blue} shadow={c.blueDeep} small onClick={copyLink}>{linkCopied ? "Copied!" : "Copy"}</StickerBtn>
+          </div>
+          <div style={{ fontSize: 11, color: c.inkMute, lineHeight: 1.5, marginBottom: 8, paddingTop: 8, borderTop: `1px dashed ${c.paperEdge}` }}>
+            Or just note their name here for your own record (does not credit their passport on its own):
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <input value={manualName} onChange={e => setManualName(e.target.value)} placeholder="Trainer name" onKeyDown={e => { if (e.key === "Enter") logManualNote(); }} />
+            <StickerBtn fill={c.paperDim} shadow={c.paperEdge} small onClick={logManualNote} disabled={!manualName.trim()} style={{ color: c.ink }}>Note</StickerBtn>
+          </div>
+          {manualMsg ? <div style={{ fontSize: 11, color: c.grassDeep, fontWeight: 700, marginTop: 6 }}>{manualMsg}</div> : null}
+        </Paper>
+
+        {log.length > 0 ? (
+          <Paper c={c} style={{ marginBottom: 16, maxHeight: 240, overflowY: "auto" }}>
+            <div style={{ fontWeight: 700, fontSize: 13, color: c.ink, marginBottom: 8 }}>Recent check-ins</div>
+            {log.slice(0, 30).map((entry, i) => (
+              <div key={i} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: c.inkSoft, padding: "4px 0", borderBottom: i < log.length - 1 ? `1px solid ${c.paperEdge}` : "none" }}>
+                <span>{entry.name || "Trainer"}</span>
+                <span style={{ color: c.inkMute }}>{new Date(entry.time).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
+              </div>
+            ))}
+          </Paper>
+        ) : null}
+
+        <StickerBtn fill={c.strawberry} shadow={c.strawDeep} onClick={() => requestConfirm("End this check-in session?", onEnd)} style={{ width: "100%" }}>
+          End session
+        </StickerBtn>
+      </div>
+    );
+  }
+
+  // ───────────────────────────────────────────────────────────
+  // PASSPORT CHECK-IN — attendee-facing. Gates the button on
+  // geolocation distance from the session's coordinates; on failure
+  // or denial, shows "Trouble checking in?" as a quiet fallback
+  // rather than a competing action (per explicit design decision —
+  // never show a check-in option the person can't actually use).
+  // ───────────────────────────────────────────────────────────
+  function PassportCheckIn({ c, session, authUser, onGoogleSignIn, authBusy }) {
+    const [geoState, setGeoState] = useState("checking"); // checking | in_range | out_of_range | denied | unsupported
+    const [distance, setDistance] = useState(null);
+    const [checkedIn, setCheckedIn] = useState(false);
+    const [checking, setChecking] = useState(false);
+    const [showTrouble, setShowTrouble] = useState(false);
+
+    useEffect(() => {
+      if (!navigator.geolocation) { setGeoState("unsupported"); return; }
+      const watchId = navigator.geolocation.watchPosition(
+        (pos) => {
+          const d = distanceMeters(pos.coords.latitude, pos.coords.longitude, session.lat, session.lng);
+          setDistance(d);
+          setGeoState(d <= (session.radiusMeters || CHECKIN_RADIUS_METERS) ? "in_range" : "out_of_range");
+        },
+        () => setGeoState("denied"),
+        { enableHighAccuracy: true, maximumAge: 15000, timeout: 10000 }
+      );
+      return () => navigator.geolocation.clearWatch(watchId);
+    }, [session.lat, session.lng, session.radiusMeters]);
+
+    useEffect(() => {
+      if (!authUser) return;
+      (async () => {
+        const existing = await FB.get(`users/${authUser.uid}/passport/checkIns/${session.id}`);
+        if (existing) setCheckedIn(true);
+      })();
+    }, [authUser, session.id]);
+
+    const doCheckIn = async () => {
+      if (!authUser) return;
+      setChecking(true);
+      try {
+        await recordCheckIn(authUser.uid, session, "geo");
+        setCheckedIn(true);
+      } finally {
+        setChecking(false);
+      }
+    };
+
+    const canCheckIn = geoState === "in_range";
+
+    return (
+      <Paper c={c} accent={c.grassMid} style={{ padding: "20px", textAlign: "left" }}>
+        <div style={{ fontSize: 12, color: c.inkMute, fontWeight: 700, letterSpacing: 0.5, marginBottom: 8 }}>CHECK IN</div>
+        <div style={{ fontSize: 16, fontWeight: 700, color: c.ink, marginBottom: 4 }}>{session.eventName}</div>
+        <div style={{ fontSize: 12, color: c.inkSoft, marginBottom: 14 }}>{session.locationLabel} &middot; within {session.radiusMeters || CHECKIN_RADIUS_METERS}m</div>
+
+        {!authUser ? (
+          <div style={{ background: c.blue + "14", border: `2px solid ${c.blue}`, borderRadius: 14, padding: "12px 14px" }}>
+            <div style={{ fontSize: 12, color: c.inkSoft, lineHeight: 1.5, marginBottom: 10 }}>Sign in to check in and start your passport.</div>
+            <StickerBtn fill={c.blue} shadow={c.blueDeep} small onClick={onGoogleSignIn} disabled={authBusy}>
+              {authBusy ? "Signing in…" : "Sign in"}
+            </StickerBtn>
+          </div>
+        ) : checkedIn ? (
+          <div style={{ display: "flex", alignItems: "center", gap: 8, color: c.grassDeep, fontWeight: 700, fontSize: 14 }}>
+            <Icon name="check" size={16} /> You're checked in!
+          </div>
+        ) : (
+          <>
+            <button
+              onClick={doCheckIn}
+              disabled={!canCheckIn || checking}
+              style={{
+                width: "100%", background: canCheckIn ? c.grassMid : c.paperEdge, border: "none",
+                color: canCheckIn ? "#173404" : c.inkMute, fontFamily: "Fredoka, sans-serif", fontWeight: 600,
+                fontSize: 15, padding: 14, borderRadius: 14, cursor: canCheckIn ? "pointer" : "not-allowed",
+              }}
+            >
+              {checking ? "Checking in…" : "Check in"}
+            </button>
+            <div style={{ textAlign: "center", marginTop: 8 }}>
+              <button onClick={() => setShowTrouble(!showTrouble)} style={{ background: "none", border: "none", color: c.inkMute, fontSize: 11, fontFamily: "Fredoka, sans-serif", cursor: "pointer", textDecoration: "underline", padding: 0 }}>
+                Trouble checking in?
+              </button>
+            </div>
+            {showTrouble ? (
+              <div style={{ fontSize: 11, color: c.inkSoft, lineHeight: 1.5, marginTop: 8, background: c.paperDim, borderRadius: 10, padding: "10px 12px" }}>
+                {geoState === "denied" ? "Location access was denied. " : geoState === "unsupported" ? "Your browser doesn't support location check-in. " : geoState === "out_of_range" ? `You're about ${Math.round(distance)}m away — get a bit closer, or ` : ""}
+                Ask a host to check you in manually.
+              </div>
+            ) : null}
+          </>
+        )}
+      </Paper>
+    );
+  }
+
+  // ───────────────────────────────────────────────────────────
+  // PASSPORT MANUAL CHECK-IN — opened via the host-shared link from
+  // PassportSession's "Trouble checking in?" card (pp_checkin=...).
+  // Requires sign-in (a check-in only means anything tied to a real
+  // uid) but deliberately skips the geofence: a host explicitly
+  // generated and handed over this specific link, which stands in
+  // for the location proof the normal flow gets from geolocation.
+  // ───────────────────────────────────────────────────────────
+  function PassportManualCheckIn({ c, sessionId, authUser, onGoogleSignIn, onSignOut, authBusy, authError }) {
+    const [session, setSession] = useState(undefined);
+    const [checkedIn, setCheckedIn] = useState(false);
+    const [checking, setChecking] = useState(false);
+
+    useEffect(() => {
+      (async () => {
+        const val = await FB.get(`pp:session/${sessionId}`);
+        // A session id is only ever meaningful for the CURRENT live
+        // session — if it's ended, pp:session won't match this id.
+        const current = await FB.get("pp:session");
+        setSession(current ? (current.id === sessionId ? current : null) : null);
+      })();
+    }, [sessionId]);
+
+    useEffect(() => {
+      if (!authUser || !session) return;
+      (async () => {
+        const existing = await FB.get(`users/${authUser.uid}/passport/checkIns/${session.id}`);
+        if (existing) setCheckedIn(true);
+      })();
+    }, [authUser, session]);
+
+    const doCheckIn = async () => {
+      if (!authUser || !session) return;
+      setChecking(true);
+      try {
+        await recordCheckIn(authUser.uid, session, "host_manual");
+        setCheckedIn(true);
+      } finally {
+        setChecking(false);
+      }
+    };
+
+    if (session === undefined) return <CenterMsg c={c} text="Loading…" />;
+
+    return (
+      <div style={{ maxWidth: 420, margin: "0 auto", paddingTop: 20 }}>
+        <div style={{ textAlign: "center", marginBottom: 20 }}>
+          <div style={{ display: "inline-block", background: "#fff", borderRadius: 24, padding: "14px 22px", boxShadow: `0 0 0 2px ${c.blueDeep}, 0 4px 0 ${c.blueDeep}` }}>
+            <div style={{ fontFamily: "Fredoka, sans-serif", fontWeight: 700, fontSize: 22, color: c.blueDeep, letterSpacing: 1 }}>GARDEN GROVE</div>
+            <div style={{ fontFamily: "Fredoka, sans-serif", fontWeight: 600, fontSize: 14, color: c.blue, letterSpacing: 1 }}>PoGo</div>
+          </div>
+        </div>
+
+        {!session ? (
+          <Paper c={c} style={{ textAlign: "center", padding: "24px 20px" }}>
+            <div style={{ fontSize: 14, fontWeight: 600, color: c.ink, marginBottom: 6 }}>This check-in link has expired</div>
+            <p style={{ fontSize: 12, color: c.inkMute, lineHeight: 1.5 }}>The session it was for has ended. Ask a host for a new link if you're at an event right now.</p>
+          </Paper>
+        ) : (
+          <Paper c={c} accent={c.grassMid} style={{ padding: "20px", textAlign: "center" }}>
+            <div style={{ fontSize: 12, color: c.inkMute, fontWeight: 700, letterSpacing: 0.5, marginBottom: 8 }}>CHECK IN</div>
+            <div style={{ fontSize: 17, fontWeight: 700, color: c.ink, marginBottom: 4 }}>{session.eventName}</div>
+            <div style={{ fontSize: 12, color: c.inkSoft, marginBottom: 16 }}>Sent to you by a host</div>
+
+            {!authUser ? (
+              <div style={{ background: c.blue + "14", border: `2px solid ${c.blue}`, borderRadius: 14, padding: "12px 14px" }}>
+                <div style={{ fontSize: 12, color: c.inkSoft, lineHeight: 1.5, marginBottom: 10 }}>Sign in to complete your check-in.</div>
+                <StickerBtn fill={c.blue} shadow={c.blueDeep} small onClick={onGoogleSignIn} disabled={authBusy}>
+                  {authBusy ? "Signing in…" : "Sign in"}
+                </StickerBtn>
+                {authError ? <div style={{ fontSize: 11, color: c.strawDeep, fontWeight: 600, marginTop: 8 }}>{authError}</div> : null}
+              </div>
+            ) : checkedIn ? (
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, color: c.grassDeep, fontWeight: 700, fontSize: 14 }}>
+                <Icon name="check" size={16} /> You're checked in!
+              </div>
+            ) : (
+              <StickerBtn fill={c.grassMid} shadow={c.grassDeep} onClick={doCheckIn} disabled={checking} style={{ width: "100%" }}>
+                {checking ? "Checking in…" : "Complete check-in"}
+              </StickerBtn>
+            )}
+          </Paper>
+        )}
+      </div>
+    );
+  }
+
+  // ───────────────────────────────────────────────────────────
+  // MY PASSPORT — attendee-facing badge display. Milestones shown
+  // unsplit by type; named badges grouped by event type per explicit
+  // design decision, with a type filter for larger collections.
+  // ───────────────────────────────────────────────────────────
+  function MyPassport({ setView, c, authUser }) {
+    const [badges, setBadges] = useState(undefined);
+    const [checkInCount, setCheckInCount] = useState(0);
+    const [shareable, setShareable] = useState(false);
+    const [thresholds, setThresholds] = useState([1, 5, 10, 25]);
+    const [linkCopied, setLinkCopied] = useState(false);
+
+    useEffect(() => {
+      if (!authUser) return;
+      const u1 = FB.watch(`users/${authUser.uid}/passport/badges`, (val) => setBadges(badgesObjToArray(val)));
+      const u2 = FB.watch(`users/${authUser.uid}/passport/checkIns`, (val) => setCheckInCount(val ? Object.keys(val).length : 0));
+      const u3 = FB.watch(`users/${authUser.uid}/passport/shareable`, (val) => setShareable(!!val));
+      return () => { u1(); u2(); u3(); };
+    }, [authUser]);
+
+    useEffect(() => {
+      (async () => {
+        const settings = await FB.get("settings:passport");
+        if (settings) { if (Array.isArray(settings.milestoneThresholds)) setThresholds(settings.milestoneThresholds); }
+      })();
+    }, []);
+
+    const toggleShareable = async (val) => {
+      setShareable(val);
+      await FB.set(`users/${authUser.uid}/passport/shareable`, val);
+    };
+
+    const shareLink = window.location.origin + window.location.pathname + "?passport=" + authUser.uid;
+    const copyShareLink = async () => {
+      try {
+        await navigator.clipboard.writeText(shareLink);
+        setLinkCopied(true);
+        setTimeout(() => setLinkCopied(false), 2500);
+      } catch (e) { /* clipboard unavailable — link is still visible to copy manually */ }
+    };
+
+    if (badges === undefined) return <CenterMsg c={c} text="Loading…" />;
+
+    return (
+      <div style={{ maxWidth: 460, margin: "0 auto" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20 }}>
+          <BackButton c={c} onClick={() => setView("home")} />
+          <div style={{ flex: 1 }}>
+            <div style={{ fontWeight: 700, fontSize: 20, color: "#fff", textShadow: "0 2px 4px rgba(0,0,0,0.25)", lineHeight: 1.1 }}>My passport</div>
+            <div style={{ fontSize: 13, color: c.grassMid, fontWeight: 600, marginTop: 2 }}>{checkInCount} check-in{checkInCount !== 1 ? 's' : ''} &middot; {badges.filter(b => b.kind === "named").length} named badge{badges.filter(b => b.kind === "named").length !== 1 ? 's' : ''}</div>
+          </div>
+        </div>
+
+        <Paper c={c} style={{ marginBottom: 16 }}>
+          <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: c.inkSoft, fontWeight: 600, cursor: "pointer" }}>
+            <input type="checkbox" checked={shareable} onChange={e => toggleShareable(e.target.checked)} style={{ width: "auto" }} />
+            Make my passport shareable
+          </label>
+          <div style={{ fontSize: 11, color: c.inkMute, marginTop: 6, lineHeight: 1.5 }}>
+            When on, anyone with your passport link can view your trainer name and badges. Off by default — your passport is private until you turn this on.
+          </div>
+          {shareable ? (
+            <div style={{ display: "flex", gap: 8, marginTop: 10, paddingTop: 10, borderTop: `1px dashed ${c.paperEdge}` }}>
+              <input value={shareLink} readOnly onClick={e => e.target.select()} style={{ flex: 1, fontSize: 11, fontFamily: "monospace" }} />
+              <StickerBtn fill={c.blue} shadow={c.blueDeep} small onClick={copyShareLink}>{linkCopied ? "Copied!" : "Copy"}</StickerBtn>
+            </div>
+          ) : null}
+        </Paper>
+
+        <PassportBadgeDisplay c={c} badges={badges} thresholds={thresholds} />
+      </div>
+    );
+  }
+
+  // ───────────────────────────────────────────────────────────
+  // PASSPORT BADGE DISPLAY — shared badge grid (milestones + named
+  // badges grouped by event type) used by both MyPassport (private,
+  // with the shareable toggle) and PublicPassport (read-only, via a
+  // ?passport={uid} link). Kept as one component so the two views
+  // can never visually drift apart.
+  // ───────────────────────────────────────────────────────────
+  function PassportBadgeDisplay({ c, badges, thresholds }) {
+    const [filterType, setFilterType] = useState("all");
+
+    const milestoneBadges = badges.filter(b => b.kind === "milestone");
+    const namedBadges = badges.filter(b => b.kind === "named");
+    const namedByType = {};
+    namedBadges.forEach(b => {
+      const key = b.eventType || "custom";
+      if (!namedByType[key]) namedByType[key] = [];
+      namedByType[key].push(b);
+    });
+    const visibleTypes = filterType === "all" ? EVENT_TYPES : EVENT_TYPES.filter(t => t.id === filterType);
+
+    return (
+      <>
+        <Paper c={c} accent={c.grassMid} style={{ marginBottom: 16 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: c.inkMute, marginBottom: 12, textTransform: "uppercase", letterSpacing: 0.5 }}>Milestones</div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10 }}>
+            {thresholds.map(t => {
+              const earned = milestoneBadges.some(b => b.threshold === t);
+              return (
+                <div key={t} style={{ textAlign: "center", opacity: earned ? 1 : 0.4 }}>
+                  <div style={{
+                    width: 54, height: 54, margin: "0 auto 6px", borderRadius: "50%",
+                    background: earned ? c.grassMid : c.paperDim, display: "flex", alignItems: "center", justifyContent: "center",
+                    color: earned ? "#173404" : c.inkMute, fontWeight: 700, fontSize: 16,
+                    border: earned ? `3px solid ${c.grassDeep}` : `3px dashed ${c.paperEdge}`,
+                  }}>{t}</div>
+                  <div style={{ fontSize: 10, fontWeight: 600, color: earned ? c.ink : c.inkMute }}>{t === 1 ? "1st check-in" : `${t} check-ins`}</div>
+                </div>
+              );
+            })}
+          </div>
+        </Paper>
+
+        <Paper c={c}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: c.inkMute, textTransform: "uppercase", letterSpacing: 0.5 }}>Event badges</div>
+            <select value={filterType} onChange={e => setFilterType(e.target.value)} style={{ fontSize: 11, padding: "4px 8px", width: "auto" }}>
+              <option value="all">All types</option>
+              {EVENT_TYPES.map(t => <option key={t.id} value={t.id}>{t.label}</option>)}
+            </select>
+          </div>
+
+          {visibleTypes.map(type => {
+            const list = namedByType[type.id] || [];
+            if (!list.length ? filterType === "all" : false) return null;
+            return (
+              <div key={type.id} style={{ marginBottom: 16 }}>
+                <div style={{ fontSize: 11, fontWeight: 600, color: c[type.colorDeep], marginBottom: 10 }}>{type.label}</div>
+                {list.length ? (
+                  <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
+                    {list.map(b => (
+                      <div key={b.id} style={{ textAlign: "center", width: 68 }}>
+                        <div style={{ position: "relative", width: 64, height: 64, margin: "0 auto" }}>
+                          <div style={{ width: 64, height: 64, borderRadius: "50%", background: c[type.color], border: `3px solid ${c[type.colorDeep]}`, display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
+                            <img src={b.iconUrl} alt="" style={{ width: 36, height: 36, objectFit: "contain" }} onError={e => { e.target.src = DEFAULT_BADGE_ICON; }} />
+                          </div>
+                          <div style={{ position: "absolute", bottom: -4, left: "50%", transform: "translateX(-50%)", background: c.ink, color: c.paper, fontSize: 9, fontWeight: 600, padding: "2px 6px", borderRadius: 8, whiteSpace: "nowrap" }}>
+                            {new Date(b.earnedAt).toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "2-digit" }).replace(/\//g, ".")}
+                          </div>
+                        </div>
+                        <div style={{ fontSize: 10, fontWeight: 600, color: c.ink, marginTop: 8, lineHeight: 1.3 }}>{b.label}</div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div style={{ fontSize: 11, color: c.inkMute }}>No badges yet.</div>
+                )}
+              </div>
+            );
+          })}
+        </Paper>
+      </>
+    );
+  }
+
+  // ───────────────────────────────────────────────────────────
+  // PUBLIC PASSPORT — no-login shareable view, opened via
+  // ?passport={uid}. Only ever shows what's already public by
+  // design: trainer name + badges. Reads gate on the target user's
+  // OWN shareable flag (checked client-side here; the real
+  // enforcement is the Firebase rule allowing public read of
+  // users/{uid}/passport/* only when that path's own shareable
+  // sibling is true — see delivery notes for the exact rule).
+  // ───────────────────────────────────────────────────────────
+  function PublicPassport({ c, uid }) {
+    const [state, setState] = useState("loading"); // loading | not_shareable | ready
+    const [trainerName, setTrainerName] = useState("");
+    const [badges, setBadges] = useState([]);
+    const [checkInCount, setCheckInCount] = useState(0);
+    const [thresholds, setThresholds] = useState([1, 5, 10, 25]);
+
+    useEffect(() => {
+      (async () => {
+        const shareable = await FB.get(`users/${uid}/passport/shareable`);
+        if (!shareable) { setState("not_shareable"); return; }
+        const [name, badgesRaw, checkInsRaw, settings] = await Promise.all([
+          FB.get(`users/${uid}/trainerName`),
+          FB.get(`users/${uid}/passport/badges`),
+          FB.get(`users/${uid}/passport/checkIns`),
+          FB.get("settings:passport"),
+        ]);
+        setTrainerName(name || "Trainer");
+        setBadges(badgesObjToArray(badgesRaw));
+        setCheckInCount(checkInsRaw ? Object.keys(checkInsRaw).length : 0);
+        if (settings) { if (Array.isArray(settings.milestoneThresholds)) setThresholds(settings.milestoneThresholds); }
+        setState("ready");
+      })();
+    }, [uid]);
+
+    if (state === "loading") return <CenterMsg c={c} text="Loading…" />;
+    if (state === "not_shareable") {
+      return (
+        <div style={{ maxWidth: 420, margin: "0 auto", paddingTop: 40 }}>
+          <Paper c={c} style={{ textAlign: "center", padding: "28px 22px" }}>
+            <div style={{ fontSize: 15, fontWeight: 600, color: c.ink, marginBottom: 6 }}>This passport isn't shared publicly</div>
+            <p style={{ fontSize: 12, color: c.inkMute, lineHeight: 1.5 }}>The trainer hasn't turned on sharing for their passport, or the link is out of date.</p>
+          </Paper>
+        </div>
+      );
+    }
+
+    return (
+      <div style={{ maxWidth: 460, margin: "0 auto", paddingTop: 20 }}>
+        <div style={{ textAlign: "center", marginBottom: 20 }}>
+          <div style={{ fontWeight: 700, fontSize: 22, color: "#fff", textShadow: "0 2px 4px rgba(0,0,0,0.25)" }}>{trainerName}'s passport</div>
+          <div style={{ fontSize: 13, color: c.grassMid, fontWeight: 600, marginTop: 2 }}>{checkInCount} check-in{checkInCount !== 1 ? 's' : ''}</div>
+        </div>
+        <PassportBadgeDisplay c={c} badges={badges} thresholds={thresholds} />
+      </div>
+    );
+  }
+
+
+  // ───────────────────────────────────────────────────────────
+  // PASSPORT HISTORY — host-facing archive of ended check-in
+  // sessions, mirroring Code Drop / Giveaway's SessionHistory.
+  // ───────────────────────────────────────────────────────────
+  function PassportHistory({ c, onBack }) {
+    const [history, setHistory] = useState(undefined);
+
+    useEffect(() => {
+      const unwatch = FB.watch("pp:history", (val) => {
+        const arr = val ? Object.values(val) : [];
+        arr.sort((a, b) => (b.startedAt || 0) - (a.startedAt || 0));
+        setHistory(arr);
+      });
+      return unwatch;
+    }, []);
+
+    if (history === undefined) return <CenterMsg c={c} text="Loading…" />;
+
+    return (
+      <div style={{ maxWidth: 460, margin: "0 auto" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20 }}>
+          <BackButton c={c} onClick={onBack} />
+          <div style={{ fontWeight: 700, fontSize: 20, color: "#fff", textShadow: "0 2px 4px rgba(0,0,0,0.25)" }}>Check-in history</div>
+        </div>
+        {!history.length ? (
+          <Paper c={c} style={{ textAlign: "center", padding: "24px 20px", color: c.inkMute }}>No past sessions yet.</Paper>
+        ) : history.map((h, i) => (
+          <Paper key={i} c={c} style={{ marginBottom: 12 }}>
+            <div style={{ fontWeight: 700, fontSize: 14, color: c.ink }}>{h.eventName}</div>
+            <div style={{ fontSize: 11, color: c.inkMute, marginTop: 2 }}>
+              {h.startedAt ? new Date(h.startedAt).toLocaleDateString() : ""} &middot; {(h.checkIns || []).length} check-in{(h.checkIns || []).length !== 1 ? 's' : ''}
+            </div>
+          </Paper>
+        ))}
+      </div>
+    );
+  }
+
+  // ───────────────────────────────────────────────────────────
+  // PASSPORT SETTINGS — host-only. Milestone thresholds and
+  // per-event-type named-badge toggles, kept separate from
+  // BrandingSettings since these are feature/behavior settings,
+  // not visual identity (see engineering reference rationale).
+  // ───────────────────────────────────────────────────────────
+  function PassportSettings({ c, setView }) {
+    const [thresholds, setThresholds] = useState([1, 5, 10, 25]);
+    const [badgeTypesEnabled, setBadgeTypesEnabled] = useState({});
+    const [newThreshold, setNewThreshold] = useState("");
+    const [saved, setSaved] = useState(false);
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+      (async () => {
+        const settings = await FB.get("settings:passport");
+        if (settings) {
+          if (Array.isArray(settings.milestoneThresholds)) setThresholds(settings.milestoneThresholds);
+          if (settings.badgeTypesEnabled) setBadgeTypesEnabled(settings.badgeTypesEnabled);
+        }
+        setLoading(false);
+      })();
+    }, []);
+
+    const save = async (nextThresholds, nextBadgeTypes) => {
+      const payload = { milestoneThresholds: nextThresholds, badgeTypesEnabled: nextBadgeTypes };
+      await FB.set("settings:passport", payload);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2500);
+    };
+
+    const addThreshold = () => {
+      const n = Number(newThreshold);
+      if (!n || n <= 0 || thresholds.includes(n)) { setNewThreshold(""); return; }
+      const next = [...thresholds, n].sort((a, b) => a - b);
+      setThresholds(next);
+      setNewThreshold("");
+      save(next, badgeTypesEnabled);
+    };
+    const removeThreshold = (n) => {
+      const next = thresholds.filter(t => t !== n);
+      setThresholds(next);
+      save(next, badgeTypesEnabled);
+    };
+    const toggleType = (typeId, val) => {
+      const next = { ...badgeTypesEnabled, [typeId]: val };
+      setBadgeTypesEnabled(next);
+      save(thresholds, next);
+    };
+
+    if (loading) return <CenterMsg c={c} text="Loading…" />;
+
+    return (
+      <div style={{ maxWidth: 460, margin: "0 auto" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20 }}>
+          <BackButton c={c} onClick={() => setView("home")} />
+          <div style={{ fontWeight: 700, fontSize: 20, color: "#fff", textShadow: "0 2px 4px rgba(0,0,0,0.25)" }}>Passport settings</div>
+        </div>
+
+        <Paper c={c} accent={c.grassMid} style={{ marginBottom: 16 }}>
+          <div style={{ fontWeight: 700, fontSize: 14, color: c.ink, marginBottom: 4 }}>Milestone thresholds</div>
+          <div style={{ fontSize: 11, color: c.inkMute, lineHeight: 1.5, marginBottom: 10 }}>
+            Check-in counts that award a milestone badge, unsplit by event type.
+          </div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 10 }}>
+            {thresholds.map(t => (
+              <div key={t} style={{ display: "flex", alignItems: "center", gap: 6, background: c.grassMid + "22", border: `2px solid ${c.grassMid}`, borderRadius: 999, padding: "6px 10px 6px 14px" }}>
+                <span style={{ fontWeight: 700, fontSize: 13, color: c.grassDeep }}>{t}</span>
+                <button onClick={() => removeThreshold(t)} style={{ background: "none", border: "none", cursor: "pointer", color: c.grassDeep, fontSize: 15, lineHeight: 1, padding: 0 }} aria-label={`Remove ${t} threshold`}>×</button>
+              </div>
+            ))}
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <input type="number" value={newThreshold} onChange={e => setNewThreshold(e.target.value)} placeholder="e.g. 50" onKeyDown={e => { if (e.key === "Enter") addThreshold(); }} />
+            <StickerBtn fill={c.grassMid} shadow={c.grassDeep} small onClick={addThreshold} disabled={!newThreshold}>Add</StickerBtn>
+          </div>
+        </Paper>
+
+        <Paper c={c} accent={c.blue}>
+          <div style={{ fontWeight: 700, fontSize: 14, color: c.ink, marginBottom: 4 }}>Named badges by event type</div>
+          <div style={{ fontSize: 11, color: c.inkMute, lineHeight: 1.5, marginBottom: 12 }}>
+            Community day and Special events always get their own badge. Turn on other types here to make them available when starting a check-in session.
+          </div>
+          {EVENT_TYPES.map(t => (
+            <div key={t.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 0", borderBottom: `1px solid ${c.paperEdge}` }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: c.ink }}>{t.label}</div>
+              {t.alwaysNamed ? (
+                <div style={{ fontSize: 11, color: c.inkMute, fontWeight: 600 }}>Always on</div>
+              ) : (
+                <label style={{ position: "relative", display: "inline-block", width: 42, height: 24, cursor: "pointer" }}>
+                  <input type="checkbox" checked={!!badgeTypesEnabled[t.id]} onChange={e => toggleType(t.id, e.target.checked)} style={{ opacity: 0, width: 0, height: 0 }} />
+                  <span style={{
+                    position: "absolute", inset: 0, borderRadius: 999,
+                    background: badgeTypesEnabled[t.id] ? c.grassMid : c.paperEdge,
+                    transition: "background 0.15s",
+                  }}>
+                    <span style={{
+                      position: "absolute", top: 3, left: badgeTypesEnabled[t.id] ? 21 : 3,
+                      width: 18, height: 18, borderRadius: "50%", background: "#fff",
+                      transition: "left 0.15s", boxShadow: "0 1px 2px rgba(0,0,0,0.2)",
+                    }} />
+                  </span>
+                </label>
+              )}
+            </div>
+          ))}
+        </Paper>
+
+        {saved ? <div style={{ textAlign: "center", fontSize: 12, color: c.grassDeep, fontWeight: 700, marginTop: 12 }}>✓ Saved</div> : null}
+      </div>
+    );
+  }
+
+  // ───────────────────────────────────────────────────────────
   // ERROR BOUNDARY — catches render crashes (e.g. invalid hook
   // order, bad data shapes) and shows a readable message + the
   // recent diagnostics log instead of a blank page.
@@ -5469,7 +6629,7 @@
   // Bump this with every release so the live page always shows what's
   // actually deployed — no more guessing whether a paste went through,
   // or which version is live when reporting a field issue.
-  const APP_VERSION = "v2.12.24";
+  const APP_VERSION = "v2.13.1";
 
   function VersionFooter() {
     return (
@@ -5500,6 +6660,8 @@
     const [claimSession, setClaimSession] = useState(null);
     const [claimToken, setClaimToken] = useState(null);
     const [joinSession, setJoinSession] = useState(null);
+    const [ppCheckinSession, setPpCheckinSession] = useState(null);
+    const [publicPassportUid, setPublicPassportUid] = useState(null);
     const [bgFailed, setBgFailed] = useState(false);
     const [needsTrainerName, setNeedsTrainerName] = useState(false);
     const [profileTrainerName, setProfileTrainerName] = useState("");
@@ -5517,9 +6679,13 @@
       const params = new URLSearchParams(window.location.search);
       const claimId = params.get("cd_claim");
       const joinId = params.get("gw_join");
+      const ppCheckinId = params.get("pp_checkin");
+      const passportUid = params.get("passport");
       setClaimSession(claimId || null);
       setClaimToken(params.get("t") || null);
       setJoinSession(joinId || null);
+      setPpCheckinSession(ppCheckinId || null);
+      setPublicPassportUid(passportUid || null);
     }, []);
 
     useEffect(() => {
@@ -5636,6 +6802,22 @@
       return <div style={pageStyle}><GiveawayClaim c={c} sessionId={joinSession} authUser={authUser} onGoogleSignIn={startGoogleSignIn} onSignOut={signOutCommunity} authBusy={authBusy} authError={authError} /><DiagnosticsPanel enabled={showDiagnostics} /><VersionFooter /></div>;
     }
 
+    // Public shareable passport view — no sign-in required to VIEW,
+    // since it's read-only and only ever shows what its owner already
+    // opted to make public (see PublicPassport / MyPassport's toggle).
+    if (publicPassportUid) {
+      return <div style={pageStyle}><PublicPassport c={c} uid={publicPassportUid} /><DiagnosticsPanel enabled={showDiagnostics} /><VersionFooter /></div>;
+    }
+
+    // Host-shared manual check-in link (see PassportSession "Trouble
+    // checking in?"). Unlike Code Drop/Giveaway's guest-allowed claim
+    // flows, this REQUIRES sign-in — a passport check-in only means
+    // anything tied to a real uid — and skips the geofence, since a
+    // host explicitly generated and handed over this specific link.
+    if (ppCheckinSession) {
+      return <div style={pageStyle}><PassportManualCheckIn c={c} sessionId={ppCheckinSession} authUser={authUser} onGoogleSignIn={startGoogleSignIn} onSignOut={signOutCommunity} authBusy={authBusy} authError={authError} /><DiagnosticsPanel enabled={showDiagnostics} /><VersionFooter /></div>;
+    }
+
     // Auth check in progress
     if (authUser === undefined) {
       return <div style={pageStyle}><CenterMsg c={c} text="Loading..." /><DiagnosticsPanel enabled={showDiagnostics} /><VersionFooter /></div>;
@@ -5664,6 +6846,9 @@
     const showBranding = view === "branding" ? isHost : false;
     const showStats = view === "stats" ? isHost : false;
     const showActivity = view === "activity" ? !!authUser : false;
+    const showPassport = view === "passport" ? isHost : false;
+    const showPassportSettings = view === "passportsettings" ? isHost : false;
+    const showMyPassport = view === "mypassport" ? !!authUser : false;
 
     return (
       <div style={pageStyle}>
@@ -5679,6 +6864,9 @@
         {showGiveaway ? <GiveawayApp setView={setView} c={c} /> : null}
         {showBranding ? <BrandingSettings c={c} setView={setView} /> : null}
         {showStats ? <MeetupStatsApp c={c} setView={setView} /> : null}
+        {showPassport ? <PassportApp setView={setView} c={c} /> : null}
+        {showPassportSettings ? <PassportSettings c={c} setView={setView} /> : null}
+        {showMyPassport ? <MyPassport setView={setView} c={c} authUser={authUser} /> : null}
         <DiagnosticsPanel enabled={showDiagnostics} />
         <VersionFooter />
       </div>
