@@ -1668,20 +1668,24 @@
         );
       }
       if (isChecking) return null;
+      // v2.13.5 promoted this from a quiet text link to a full-width
+      // bright button. v2.13.6 fix: the raw 🏅 emoji rendered oversized
+      // on some browsers (same class of bug as the v2.12.7 host-login
+      // lock emoji and v2.12.20 activity-icon issues) — replaced with
+      // the Icon SVG system (project convention: no raw decorative
+      // emoji in UI chrome) sized to match the Google "G" glyph beside
+      // it, so both icons sit at the same visual weight.
       return (
-        <button onClick={onGoogleSignIn} disabled={authBusy} style={{
-          background: "none", border: "none", cursor: authBusy ? "default" : "pointer",
-          display: "inline-flex", alignItems: "center", gap: 6,
-          fontFamily: "Fredoka, sans-serif", fontWeight: 600, fontSize: 12, color: c.inkMute,
-        }}>
-          <svg width="14" height="14" viewBox="0 0 24 24" style={{ flexShrink: 0 }}>
+        <StickerBtn fill={c.sun} shadow={c.sunDeep} small onClick={onGoogleSignIn} disabled={authBusy} style={{ width: "100%", color: c.ink, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+          <svg width="16" height="16" viewBox="0 0 24 24" style={{ flexShrink: 0 }}>
             <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"/>
             <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
             <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18A10.96 10.96 0 0 0 1 12c0 1.78.43 3.47 1.18 4.93l3.66-2.84z"/>
             <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
           </svg>
-          {authBusy ? "Signing in…" : "Save this to a profile? Sign in"}
-        </button>
+          <Icon name="trophy" size={16} />
+          {authBusy ? "Signing in…" : "Log in to earn a badge!"}
+        </StickerBtn>
       );
     }
 
@@ -1978,6 +1982,18 @@
     const [selectedEventId, setSelectedEventId] = useState("");
     const [selectedEventName, setSelectedEventName] = useState("");
 
+    // Passport badge config for this session (v2.13.6) — same shape and
+    // auto-detect/override pattern as PassportApp's setup screen, so a
+    // Code Drop session can also award a named event badge to signed-in
+    // claimers, not just Passport check-ins.
+    const [eventType, setEventType] = useState("communityDay");
+    const [badgeEnabled, setBadgeEnabled] = useState(true);
+    const [pokemonName, setPokemonName] = useState("");
+    const [iconOverrideUrl, setIconOverrideUrl] = useState("");
+    const [badgeTypesEnabled, setBadgeTypesEnabled] = useState({});
+    const [typeManuallySet, setTypeManuallySet] = useState(false);
+    const [previewFailed, setPreviewFailed] = useState(false);
+
     useEffect(() => {
       const unwatch1 = FB.watch("cd:codes", (val) => { setCodes(codesObjToArray(val)); setLoading(false); });
       const unwatch2 = FB.watch("cd:settings", (val) => {
@@ -1999,10 +2015,33 @@
           if (closest) {
             setSelectedEventId(closest.id);
             setSelectedEventName(closest.name);
+            if (!typeManuallySet) {
+              const guessedType = guessEventTypeFromName(closest.name);
+              if (guessedType) setEventType(guessedType);
+            }
           }
         }
       })();
     }, []);
+
+    // Shared badge-type toggle settings (same settings:passport doc
+    // Passport Settings edits, so "Raid hour badges on/off" is one
+    // switch that applies everywhere, not per-tool).
+    useEffect(() => {
+      (async () => {
+        const settings = await FB.get("settings:passport");
+        setBadgeTypesEnabled(settings ? (settings.badgeTypesEnabled || {}) : {});
+      })();
+    }, []);
+
+    const typeAlwaysNamed = eventTypeInfo(eventType).alwaysNamed;
+    const typeToggledOn = !!badgeTypesEnabled[eventType];
+    const effectiveBadgeEnabled = typeAlwaysNamed ? true : (badgeEnabled ? typeToggledOn : false);
+
+    const detectedPokemon = useMemo(() => guessPokemonNameFromEventName(selectedEventName), [selectedEventName]);
+    useEffect(() => { setPokemonName(detectedPokemon); }, [detectedPokemon]);
+    const previewIconUrl = iconOverrideUrl.trim() || pokemonIconUrl(pokemonName) || DEFAULT_BADGE_ICON;
+    useEffect(() => { setPreviewFailed(false); }, [previewIconUrl]);
 
     // If a live session already exists in Firebase, jump straight to it
     // (so navigating away and back doesn't lose track of an in-progress session,
@@ -2121,6 +2160,12 @@
         // valid token; prevClaimToken is kept live for one more rotation
         // cycle so a scan right as the QR flips still succeeds.
         claimToken: newClaimToken(), prevClaimToken: null, claimTokenAt: Date.now(),
+        // Passport badge config (v2.13.6) — same fields PassportSession
+        // uses, so a signed-in claimer can earn this session's named
+        // badge via awardPassportBadges, same as a Passport check-in.
+        eventType,
+        badgeEnabled: effectiveBadgeEnabled,
+        iconUrl: effectiveBadgeEnabled ? (previewFailed ? DEFAULT_BADGE_ICON : previewIconUrl) : null,
       };
       await FB.set("cd:session", sess);
       await FB.set("cd:claims", {});
@@ -2270,6 +2315,59 @@
                 <input type="number" min={1} value={limitValue} onChange={e => saveSessionSettings(true, Number(e.target.value))} placeholder="Max codes to give away" />
               ) : null}
               {!limitEnabled ? <div style={{ fontSize: 12, color: c.inkMute }}>Unlimited — gives out codes until the pool runs dry.</div> : null}
+            </Paper>
+
+            {/* Passport badge config (v2.13.6) — same pattern as
+                PassportApp's setup screen: event type picker, named-badge
+                toggle (or auto-on notice for always-named types), and an
+                icon preview/override. Lets a signed-in code claimer earn
+                this session's named badge, not just Passport check-ins. */}
+            <Paper c={c} accent={c.grassMid} style={{ marginBottom: 16 }}>
+              <div style={{ fontWeight: 700, fontSize: 15, color: c.ink, marginBottom: 10 }}>Passport Badge</div>
+
+              <div style={{ marginBottom: 10 }}>
+                <div style={{ fontSize: 11, color: c.inkMute, fontWeight: 600, marginBottom: 4 }}>Event type</div>
+                <select value={eventType} onChange={e => { setEventType(e.target.value); setTypeManuallySet(true); }} style={{ height: 48, minHeight: 48, padding: "0 42px 0 14px", lineHeight: "normal" }}>
+                  {EVENT_TYPES.map(t => <option key={t.id} value={t.id}>{t.label}</option>)}
+                </select>
+              </div>
+
+              {typeAlwaysNamed ? (
+                <div style={{ fontSize: 12, color: c.grassDeep, fontWeight: 600, marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}>
+                  <Icon name="check" size={13} /> This event gets its own badge automatically
+                </div>
+              ) : (
+                <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: c.inkSoft, fontWeight: 600, cursor: typeToggledOn ? "pointer" : "not-allowed", marginBottom: 10, opacity: typeToggledOn ? 1 : 0.5 }}>
+                  <input type="checkbox" checked={badgeEnabled ? typeToggledOn : false} disabled={!typeToggledOn} onChange={e => setBadgeEnabled(e.target.checked)} style={{ width: "auto" }} />
+                  Give this event its own badge
+                </label>
+              )}
+              {typeAlwaysNamed ? false : !typeToggledOn ? (
+                <div style={{ fontSize: 11, color: c.inkMute, marginBottom: 10, lineHeight: 1.5 }}>
+                  {eventTypeInfo(eventType).label} badges are turned off. Enable them in Passport Settings to use this here.
+                </div>
+              ) : null}
+
+              {effectiveBadgeEnabled ? (
+                <div style={{ background: c.paperDim, borderRadius: 14, padding: "12px 14px" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                    <div style={{ width: 48, height: 48, borderRadius: "50%", background: "#fff", border: `3px solid ${c.paperEdge}`, overflow: "hidden", flexShrink: 0 }}>
+                      <img src={previewFailed ? DEFAULT_BADGE_ICON : previewIconUrl} onError={() => setPreviewFailed(true)} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 11, color: c.inkMute, fontWeight: 600 }}>Badge icon</div>
+                      <input value={pokemonName} onChange={e => { setPokemonName(e.target.value); setIconOverrideUrl(""); }} placeholder="Pokemon name" style={{ fontSize: 13, padding: "6px 10px", marginTop: 2 }} />
+                    </div>
+                  </div>
+                  <details style={{ marginTop: 8 }}>
+                    <summary style={{ fontSize: 11, color: c.inkMute, fontWeight: 700, cursor: "pointer" }}>Use a custom image instead</summary>
+                    <input value={iconOverrideUrl} onChange={e => setIconOverrideUrl(e.target.value)} placeholder="https://..." style={{ fontSize: 12, marginTop: 6 }} />
+                  </details>
+                  <div style={{ fontSize: 10, color: c.inkMute, marginTop: 6, lineHeight: 1.4 }}>
+                    Not found yet? The GGPoGo logo will be used until this Pokemon's icon is added to the library.
+                  </div>
+                </div>
+              ) : null}
             </Paper>
           </div>
         ) : null}
@@ -3319,6 +3417,16 @@
       const entryMode = authUser ? "signed_in" : "guest";
       await FB.push("cd:sessionLog", { name: claimName, code: claimedPick.value, reward: claimedPick.reward || null, time: claimTime, fp, uid: authUser ? authUser.uid : null, entryMode });
       await recordProfileActivity(authUser, "codeClaims", { sessionId, sessionCode: sessionCode(sessionId), codeId: claimedPick.id, code: claimedPick.value, reward: claimedPick.reward || null, displayName: claimName, claimedAt: claimTime, eventName: sess.eventName || null });
+
+      // Passport badge award (v2.13.6) — only for signed-in claimers,
+      // since badges live under users/{uid}/passport and guests have no
+      // uid to credit. Feeds the same shared milestone counter as
+      // Passport check-ins (see awardPassportBadges), and can also award
+      // this session's named badge if the host configured one above.
+      if (authUser) {
+        const count = await bumpPassportActivityCount(authUser.uid);
+        if (count != null) await awardPassportBadges(authUser.uid, sess, count);
+      }
 
       // Only persist a real (non-skipped) name — skipping shouldn't
       // overwrite a name saved from a previous visit.
@@ -5600,27 +5708,35 @@
   // Giveaway (pp:session), so a host can run check-in on its own.
   // ───────────────────────────────────────────────────────────
 
-  // Awards badges for a completed check-in. Runs on the ATTENDEE'S
-  // device right after a successful check-in write, since that's the
+  // Awards badges for a completed check-in OR code claim. Runs on the
+  // ATTENDEE'S device right after a successful write, since that's the
   // only context with both the signed-in uid and the session's event
   // details in hand. Idempotent by construction: milestone badge ids
   // are threshold-based ("milestone-5") and named badge ids are
   // event-based ("named-{eventId}"), so re-running this against an
-  // event already checked into cannot create duplicates.
-  async function awardPassportBadges(uid, session, checkInCount) {
+  // event already credited cannot create duplicates.
+  //
+  // v2.13.6: milestone badges now count from a single shared
+  // `users/{uid}/passport/activityCount` counter rather than recomputing
+  // from checkIns length, since check-ins AND code claims both feed the
+  // same milestone track (a "5" badge can be earned via any mix of the
+  // two). `activityCount` is incremented transactionally by the caller
+  // (recordCheckIn / CodeClaim's claim flow) before this runs.
+  async function awardPassportBadges(uid, session, activityCount) {
     const existingBadgesRaw = await FB.get(`users/${uid}/passport/badges`);
     const existingBadges = badgesObjToArray(existingBadgesRaw);
     const existingIds = new Set(existingBadges.map(b => b.id));
     const updates = {};
 
-    // Milestone badges: unsplit by event type, based on total check-in count.
+    // Milestone badges: unsplit by event type or activity kind, based on
+    // total combined check-in + code-claim count.
     const settingsRaw = await FB.get("settings:passport");
     const thresholds = settingsRaw ? (Array.isArray(settingsRaw.milestoneThresholds)
       ? settingsRaw.milestoneThresholds
       : [1, 5, 10, 25]) : [1, 5, 10, 25];
     thresholds.forEach(t => {
       const id = `milestone-${t}`;
-      if (checkInCount >= t) { if (!existingIds.has(id)) {
+      if (activityCount >= t) { if (!existingIds.has(id)) {
         updates[`users/${uid}/passport/badges/${id}`] = {
           kind: "milestone", label: `${t} check-in${t !== 1 ? 's' : ''}`,
           iconUrl: DEFAULT_BADGE_ICON, eventType: null, earnedAt: Date.now(), threshold: t,
@@ -5643,6 +5759,14 @@
     if (Object.keys(updates).length) await FB.update(updates);
   }
 
+  // Bumps the shared milestone counter and returns its new value (or
+  // null on failure). Transaction-guarded via incrementCounter so
+  // concurrent check-ins/claims from the same user can't lose an
+  // increment.
+  async function bumpPassportActivityCount(uid) {
+    return incrementCounter(`users/${uid}/passport/activityCount`);
+  }
+
   // Writes the check-in record and triggers badge awarding. Shared by
   // both the attendee's self check-in (geo-gated) and the host's manual
   // check-in (retroactive/fallback) — same effect either way, just a
@@ -5652,9 +5776,8 @@
       eventName: session.eventName || "", eventType: session.eventType || "custom",
       timestamp: Date.now(), method,
     });
-    const allCheckInsRaw = await FB.get(`users/${uid}/passport/checkIns`);
-    const count = allCheckInsRaw ? Object.keys(allCheckInsRaw).length : 1;
-    await awardPassportBadges(uid, session, count);
+    const count = await bumpPassportActivityCount(uid);
+    if (count != null) await awardPassportBadges(uid, session, count);
   }
 
   function PassportApp({ setView, c }) {
@@ -6652,7 +6775,7 @@
   // Bump this with every release so the live page always shows what's
   // actually deployed — no more guessing whether a paste went through,
   // or which version is live when reporting a field issue.
-  const APP_VERSION = "v2.13.4";
+  const APP_VERSION = "v2.13.6";
 
   function VersionFooter() {
     return (

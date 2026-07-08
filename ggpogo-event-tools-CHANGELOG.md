@@ -162,3 +162,14 @@ Two attempted fixes for the same report (`<select>` text visually clipped top/bo
 - v2.13.3 attempt: DevTools Computed panel showed the actual box was 420×40px with 12px+12px vertical padding already consuming 24px, leaving only 16px for 15px text — reduced padding to 10px top/bottom and added `min-height: 46px`. **Reported by the user as still not fixed after this change**, meaning the height-math theory was also wrong, or something else is overriding these rules at render time. DevTools also showed `-webkit-appearance: none` rendered struck-through (not applying) in the Computed panel for this element, which may or may not be related.
 - **Not yet resolved.** Handed off for a second diagnostic pass rather than a third guess. Next step should probably be checking actual rendered (not just declared) `font-size`/`height` on the live element post-WordPress-render, and checking whether some other rule elsewhere in the file (or a WordPress/theme-level style) is overriding `#ggpogo-event-tools-root select` with higher specificity or later source order.
 
+
+### v2.13.4 — Passport dropdown clipping fix
+Resolved the Passport session-start dropdown text clipping that remained after the v2.13.1 and v2.13.3 attempts.
+
+- **Root cause confirmed by behavior:** padding/line-height tuning alone was not enough for the native `<select>` controls. The rendered dropdown continued clipping text even after reducing vertical padding and adding `min-height`, so the issue was treated as a native-control sizing problem rather than another font-metric/padding tweak.
+- **Global select fix:** changed the shared `#ggpogo-event-tools-root select` rule to use an explicit `height: 48px` / `min-height: 48px`, removed vertical padding with `padding: 0 42px 0 14px`, reset `line-height: normal`, kept the custom chevron, and added `background-color`, `display: block`, `overflow: visible`, `white-space: nowrap`, and `text-overflow: ellipsis` to make the selected text render cleanly.
+- **Passport-specific hardening:** applied the same fixed-height/padding/line-height values directly to the two Passport setup dropdowns (`Event` and `Event type`) as inline styles, reducing the chance that WordPress/theme CSS or browser-native select styling could reintroduce the clipping on the affected controls.
+- **Version/checklist:** bumped `APP_VERSION` from `v2.13.3` to `v2.13.4` and re-verified the standing WordPress safety check: zero raw `&&` occurrences in the delivered HTML.
+
+### v2.13.6 — code claims earn Passport badges; bright login CTA on claim page
+Signed-in Code Drop claims now feed the same shared Passport milestone counter as check-ins and can award a session's named badge (new "Passport Badge" config on Code Drop's Session Settings), and the claim page's sign-in prompt was promoted to a full-width bright button ("Log in to earn a badge!") using the Icon SVG system instead of a raw emoji, which had rendered oversized on some browsers.
