@@ -35,6 +35,7 @@ Grep for `@`. Exclude legitimate matches:
 - `@babel/standalone` in the CDN URL (script tag `src`)
 - `@7.29.7` (Babel version pin)
 - Any hit inside HTML comments `<!-- ... -->`
+- Any hit inside JS comments (single-line `//` or multi-line `/* ... */`)
 
 Remaining hits fail. Report line numbers.
 
