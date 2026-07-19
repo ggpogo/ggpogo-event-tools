@@ -73,7 +73,11 @@ Every distinct HTML delivery bumps the version in **both** the filename intent A
 
 ### Delivery format
 
-Always complete files, never patches or diffs. One source of truth per artifact. In-file changelog headers include ONLY the latest version's changes — full history lives in the companion `*-CHANGELOG.md`.
+Always complete files, never patches or diffs. One source of truth per artifact.
+
+**In-file changelog header convention:** every canonical file (`event-tools.html`, `ggpogo-site-styles.css`, etc.) carries a changelog header showing ONLY the latest version's changes, plus a pointer to the companion `*-CHANGELOG.md` for full history. Replace it wholesale on every delivery — never accumulate multiple versions' worth of notes in it.
+- **CSS:** a `/* ... */` block comment at the very top of the file (established convention, see `ggpogo-site-styles.css`).
+- **Event Tools HTML:** an `<!-- ... -->` HTML comment at the very top of `event-tools.html`, before the root `<div id="ggpogo-event-tools-root">` (established v2.14.1).
 
 ### Scope before code
 
@@ -100,6 +104,13 @@ Reuse existing custom properties. Never introduce a new color token without expl
 9. **`signInWithPopup` only,** never `signInWithRedirect` (requires Firebase Hosting which isn't deployed).
 
 Local `@babel/core` verification does not catch CDN version drift — the pin is confirmed by reading the file.
+
+---
+
+## Tooling gotchas
+
+- **Describing `&&`/`@` in comments or docs.** `/predeliver`'s checks 1 and 2 grep the whole file, not just the executed script block — so prose that spells out the literal characters `&&` or `@` (in-file changelog headers, code comments explaining a past fix) will trip the same checks meant to catch real bugs. When writing about these in `event-tools.html`, describe them without the literal token — "double-ampersand", "the raw @ character", "the `@` escape" — rather than typing `&&` or a bare `@` directly into the comment text.
+- **`\u0040` vs `\\u0040` when using Edit/Write tool calls.** Getting a literal single-backslash escape sequence (e.g. `\u0040`) into a file via a tool call is unreliable if you reflexively double-escape it, as if targeting a JSON string. Typing `\u0040` as the intended replacement text can silently decode to `@` before it reaches the file; typing `\\u0040` to "be safe" can instead land as two literal backslashes. There's no way to reason about this from the tool-call text alone — after any edit meant to insert a literal escape sequence, verify the actual bytes with `Read` (not `grep`, which can normalize backslashes in terminal output) before moving on. If Edit keeps producing the wrong result, drop to a `PowerShell`/`Bash` script that constructs the backslash explicitly (e.g. `[char]92` in PowerShell) instead of continuing to hand-edit escape sequences via find/replace.
 
 ---
 
@@ -177,9 +188,7 @@ Full detail in `ggpogo-website-handoff.md`.
 
 ## Page IDs (WordPress)
 
-Home=8, About=19, Events=21, Resources=23, Contact=25, Event Tools=149, Privacy Policy=241.
-
-Map page — needs its ID once published, added to `.page-id-NNN .entry-title { display: none; }` list in section 24 of the stylesheet.
+Home=8, About=19, Events=21, Resources=23, Contact=25, Event Tools=149, Privacy Policy=241, Map=319.
 
 ---
 
