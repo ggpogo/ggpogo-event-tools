@@ -64,4 +64,7 @@ Separately (WordPress admin, not CSS): identified and fixed the cause of the mob
 
 ---
 
-*Entries from 1.5.0 onward are documented only in the in-file header of the corresponding CSS file.*
+*(Note: 1.5.0 has no entry here — a prior session's closing note declared changelog entries would stop and live only in the CSS file's in-file header, which is inconsistent with the project convention that the in-file header carries only the latest version and this file carries full history. Restored the convention starting with 1.5.1 below; 1.5.0's changes are only recoverable from its in-file header/git history if ever needed.)*
+
+### 1.5.1 — Map page title shakedown
+Added `.page-id-319` to Section 24's title-hiding list now that the Map page is published (page ID 319), matching the treatment already applied to Home/About/Events/Resources/Contact/Event Tools. Also removed Section 24's now-stale "TODO: once the new Map page is published..." note, since that condition is now met.

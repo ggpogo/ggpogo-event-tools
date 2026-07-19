@@ -1,7 +1,7 @@
 /* ============================================================
    GGPoGo.com — Site-Wide Stylesheet
-   Version: 1.5.0
-   Last updated: 2026-07-02
+   Version: 1.5.1
+   Last updated: 2026-07-19
 
    FULL REPLACEMENT. Paste this entire file into
    Appearance → Customize → Additional CSS, replacing whatever
@@ -10,24 +10,13 @@
    Full historical changelog: see ggpogo-site-styles-CHANGELOG.md
    (companion file). This header lists only the latest version.
 
-   1.5.0 — Site title wordmark styling. Was plain default sans-
-           serif with no color. Now: Fredoka font, 600 weight,
-           1.35rem (was default browser size, ~1rem-ish), brand
-           blue (--gg-blue), subtle hover to --gg-blue-deep.
-
-           Scoped note: a true multi-color split ("GG" blue /
-           "PoGo" navy / ".com" green, as shown in the design
-           mockup) is NOT deliverable via CSS alone — WordPress
-           renders Site Title as one plain-text string with no
-           per-word spans, so there's nothing for color rules to
-           target individually. Shipped single-color instead
-           rather than a rule that silently can't do what it
-           claims. A true multi-tone version would need a child-
-           theme template edit or a small JS wrap script, not a
-           stylesheet change — flag if that's wanted later.
-
-           Mobile-scoped 1.1rem override (set in v1.4.8, Section
-           26) still applies on top of this and is unaffected.
+   1.5.1 — Map page title shakedown. The Map page (page ID 319)
+           publishes with the same gg-page-header component as
+           Home/Events/Resources/etc, so its default Astra title
+           needed hiding the same way theirs already are. Added
+           .page-id-319 to Section 24's title-hiding list and
+           removed that section's now-stale "once the new Map
+           page is published" TODO note.
 
    Stack: Astra theme + WordPress block editor
    Fonts: Fredoka (headings) · Nunito (body)
@@ -1417,12 +1406,13 @@ nav.site-navigation > div > ul {
 /* ===================
    24. HIDE PAGE TITLES (per page ID)
    Home=8, About=19, Events=21, Resources=23, Contact=25,
-   Event Tools=149, Privacy Policy=241
+   Event Tools=149, Privacy Policy=241, Map=319
 
-   TODO: once the new Map page is published, note its page ID
-   and add a ".page-id-NNN .entry-title, .page-id-NNN
-   .ast-archive-title { display: none !important; }" rule below
-   (the gg-page-header already shows the title visually).
+   Every page using the gg-page-header component needs its
+   default Astra title hidden here (the component already shows
+   the title visually) — add a new ".page-id-NNN .entry-title,
+   .page-id-NNN .ast-archive-title" pair to the list below
+   whenever a new such page is published.
    =================== */
 .page-id-8 .entry-title,
 .page-id-8 .ast-archive-title,
@@ -1435,7 +1425,9 @@ nav.site-navigation > div > ul {
 .page-id-25 .entry-title,
 .page-id-25 .ast-archive-title,
 .page-id-149 .entry-title,
-.page-id-149 .ast-archive-title {
+.page-id-149 .ast-archive-title,
+.page-id-319 .entry-title,
+.page-id-319 .ast-archive-title {
   display: none !important;
 }
 
