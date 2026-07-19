@@ -1,0 +1,134 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+    "roles": {
+      "hosts": {
+        "$uid": {
+          ".read": "auth !== null && auth.uid === $uid"
+        }
+      }
+    },
+    "users": {
+      "$uid": {
+        ".read": "auth !== null && auth.uid === $uid",
+        ".write": "auth !== null && auth.uid === $uid",
+        "passport": {
+          "shareable": {
+            ".read": true
+          },
+          "badges": {
+            ".read": "(auth !== null && auth.uid === $uid) || root.child('users').child($uid).child('passport').child('shareable').val() === true"
+          },
+          "checkIns": {
+            ".read": "(auth !== null && auth.uid === $uid) || root.child('users').child($uid).child('passport').child('shareable').val() === true"
+          }
+        }
+      }
+    },
+    "migrations": {
+      "$oldId": {
+        ".write": "auth !== null && !data.exists()"
+      }
+    },
+    "cd:codes": {
+      ".read": true,
+      ".write": "auth != null",
+      "$codeId": {
+        ".write": "auth != null || (data.exists() && newData.exists() && root.child('cd:session/paused').val() != true && newData.child('value').val() == data.child('value').val() && newData.hasChildren(['value','claimed','claimedBy']) && data.child('claimed').val() == false && newData.child('claimed').val() == true && newData.child('claimedBy').isString())"
+      }
+    },
+    "cd:session": {
+      ".read": true,
+      ".write": "auth != null",
+      "claimedCount": {
+        ".write": "auth != null || (root.child('cd:session/paused').val() != true && data.isNumber() && newData.val() == (data.val() + 1))"
+      }
+    },
+    "cd:claims": {
+      ".read": "auth != null",
+      ".write": "auth != null",
+      "$fp": {
+        ".read": true,
+        ".write": "auth != null || (!data.exists() && newData.isString() && root.child('cd:codes').child(newData.val()).exists())"
+      }
+    },
+    "cd:sessionLog": {
+      ".read": "auth != null",
+      ".write": "auth != null",
+      "$index": {
+        ".write": "auth != null || (!data.exists() && newData.hasChildren(['name','code','time','fp']) && newData.child('name').isString() && newData.child('code').isString() && newData.child('time').isNumber() && newData.child('fp').isString())"
+      }
+    },
+    "cd:settings": {
+      ".read": true,
+      ".write": "auth != null"
+    },
+    "cd:history": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+    "settings:branding": {
+      ".read": true,
+      ".write": "auth != null"
+    },
+    "settings:passport": {
+      ".read": true,
+      ".write": "auth != null"
+    },
+    "pp:session": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+    "pp:checkInLog": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+    "pp:history": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+    "gw:session": {
+      ".read": true,
+      ".write": "auth != null"
+    },
+    "gw:prizes": {
+      ".read": true,
+      ".write": "auth != null",
+      "$prizeId": {
+        ".write": "auth != null"
+      }
+    },
+    "gw:entrants": {
+      ".read": true,
+      ".write": "auth != null",
+      "$entrantId": {
+        ".write": "auth != null || (!data.exists() && newData.hasChildren(['name','fp','enteredAt','won']) && newData.child('name').isString() && newData.child('fp').isString() && newData.child('enteredAt').isNumber() && newData.child('won').val() == false)"
+      }
+    },
+    "gw:draws": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+    "gw:history": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+    "stats:settings": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+    "stats:cache": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+    "stats:snapshots": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+    "gw:templates": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    }
+  }
+}
