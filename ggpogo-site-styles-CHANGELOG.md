@@ -64,7 +64,14 @@ Separately (WordPress admin, not CSS): identified and fixed the cause of the mob
 
 ---
 
-*(Note: 1.5.0 has no entry here — a prior session's closing note declared changelog entries would stop and live only in the CSS file's in-file header, which is inconsistent with the project convention that the in-file header carries only the latest version and this file carries full history. Restored the convention starting with 1.5.1 below; 1.5.0's changes are only recoverable from its in-file header/git history if ever needed.)*
+**Sourcing note:** the 1.5.0 entry below was backfilled from that version's in-file changelog header (captured before it was overwritten by 1.5.1's delivery) rather than from delivery notes written at the time — a prior session's closing note here had declared changelog entries would stop and live only in the CSS file's in-file header, which is inconsistent with the project convention that the in-file header carries only the latest version and this file carries full history. That note has been removed and the convention resumes below.
+
+### 1.5.0 — Site title wordmark styling
+Site title ("GGPoGo.com") was plain default sans-serif with no color. Now: Fredoka font, 600 weight, 1.35rem (was default browser size, ~1rem-ish), brand blue (`--gg-blue`), with a subtle hover transition to `--gg-blue-deep`.
+
+**Scoped note:** a true multi-color split ("GG" blue / "PoGo" navy / ".com" green, as shown in the design mockup) is NOT deliverable via CSS alone — WordPress renders Site Title as one plain-text string with no per-word spans, so there's nothing for color rules to target individually. Shipped single-color instead of a rule that silently can't do what it claims. A true multi-tone version would need a child-theme template edit or a small JS wrap script, not a stylesheet change — flag if that's wanted later.
+
+The mobile-scoped 1.1rem override (set in v1.4.8, Section 26) still applies on top of this and is unaffected.
 
 ### 1.5.1 — Map page title shakedown
 Added `.page-id-319` to Section 24's title-hiding list now that the Map page is published (page ID 319), matching the treatment already applied to Home/About/Events/Resources/Contact/Event Tools. Also removed Section 24's now-stale "TODO: once the new Map page is published..." note, since that condition is now met.
