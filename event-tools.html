@@ -709,7 +709,17 @@
   }
   function entrantsObjToArray(obj) {
     if (!obj) return [];
-    return Object.entries(obj).map(([id, v]) => ({ id, name: v.name, fp: v.fp || null, enteredAt: v.enteredAt, won: !!v.won, extraEntries: typeof v.extraEntries === "number" ? v.extraEntries : 0 }));
+    return Object.entries(obj).map(([id, v]) => ({
+      id, name: v.name, fp: v.fp || null, enteredAt: v.enteredAt, won: !!v.won,
+      extraEntries: typeof v.extraEntries === "number" ? v.extraEntries : 0,
+      // v2.13.8: winner's own "on my way" acknowledgment — see GiveawayClaim.
+      onMyWay: !!v.onMyWay, onMyWayAt: v.onMyWayAt || null,
+      // v2.13.8: uid + activityRecordId, needed by the HOST side
+      // (confirmWinner/reroll) to patch this entrant's own My Activity
+      // record — see updateProfileActivity. null for guests (no uid) or
+      // entries recorded before this field existed.
+      uid: v.uid || null, activityRecordId: v.activityRecordId || null,
+    }));
   }
 
   // ───────────────────────────────────────────────────────────
@@ -1501,6 +1511,13 @@
                 time: v.enteredAt || v.recordedAt || 0,
                 eventName: v.eventName || null,
                 displayName: v.displayName || null,
+                // v2.13.8: status-aware fields patched in later by
+                // updateProfileActivity (confirmWinner/reroll). Missing
+                // on pre-v2.13.8 records — falls back to plain "Entered".
+                status: v.status || "entered",
+                prizeName: v.prizeName || null,
+                claimedAt: v.claimedAt || null,
+                pickedAt: v.pickedAt || null,
               });
             });
           }
@@ -1569,6 +1586,15 @@
                         <div style={{ fontWeight: 700, fontSize: 14, color: c.ink, lineHeight: 1.3 }}>
                           {item.type === "code" ? "Code Drop" : "Giveaway Entry"}
                         </div>
+                        {item.type === "giveaway" && item.status === "claimed" ? (
+                          <div style={{ fontSize: 12, color: c.blue, fontWeight: 700, marginTop: 2 }}>
+                            Claimed {item.prizeName || "prize"} @ {new Date(item.claimedAt || item.time).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}
+                          </div>
+                        ) : item.type === "giveaway" && item.status === "picked_not_claimed" ? (
+                          <div style={{ fontSize: 12, color: c.inkSoft, fontWeight: 700, marginTop: 2 }}>
+                            Picked as winner @ {new Date(item.pickedAt || item.time).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}, did not claim
+                          </div>
+                        ) : null}
                         {item.eventName ? (
                           <div style={{ fontSize: 12, color: c.inkSoft, fontWeight: 600, marginTop: 2, display: "flex", alignItems: "center", gap: 4 }}>
                             <Icon name="star" size={10} /> {item.eventName}
@@ -1712,23 +1738,26 @@
       );
     }
 
+    // v2.13.7: trimmed from two sentences to one — the button copy itself
+    // ("Log in to earn a badge!") now carries the value proposition, so
+    // this line only needs to say guests can still continue.
     return (
       <div style={{ background: c.blue + "14", border: `2px solid ${c.blue}`, borderRadius: 14, padding: "12px 14px", marginBottom: 14, textAlign: "left" }}>
         <div style={{ fontSize: 13, fontWeight: 700, color: c.ink, marginBottom: 4 }}>Save your progress</div>
         <div style={{ fontSize: 11, color: c.inkSoft, lineHeight: 1.45, marginBottom: 10 }}>
-          Sign in to save this {flowLabel} to your profile. Guests can still continue, but profile history and future passport progress will not be saved.
+          Guests can still enter — signing in saves it to your profile.
         </div>
         {isChecking ? (
           <div style={{ fontSize: 11, color: c.inkMute, fontWeight: 600 }}>Checking sign-in status...</div>
         ) : (
-          <StickerBtn fill="#4285F4" shadow="#2a5db0" small onClick={onGoogleSignIn} disabled={authBusy} style={{ width: "100%", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+          <StickerBtn fill={c.sun} shadow={c.sunDeep} small onClick={onGoogleSignIn} disabled={authBusy} style={{ width: "100%", color: c.ink, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
             <svg width="16" height="16" viewBox="0 0 24 24" style={{ flexShrink: 0 }}>
-              <path fill="#fff" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"/>
-              <path fill="#fff" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
-              <path fill="#fff" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18A10.96 10.96 0 0 0 1 12c0 1.78.43 3.47 1.18 4.93l3.66-2.84z"/>
-              <path fill="#fff" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+              <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"/>
+              <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+              <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18A10.96 10.96 0 0 0 1 12c0 1.78.43 3.47 1.18 4.93l3.66-2.84z"/>
+              <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
             </svg>
-            {authBusy ? "Signing in..." : "Sign in with Google"}
+            <Icon name="trophy" size={16} /> {authBusy ? "Signing in…" : "Log in to earn a badge!"}
           </StickerBtn>
         )}
         {authError ? <div style={{ color: c.strawberry, fontSize: 11, fontWeight: 700, marginTop: 8, textAlign: "center" }}>{authError}</div> : null}
@@ -1752,11 +1781,29 @@
     return profile ? (profile.trainerName || "") : "";
   }
 
+  // Returns the generated activity record's id on success (or null on
+  // failure/no-op), so callers that may need to UPDATE this same record
+  // later — e.g. a giveaway entry that later becomes a win or a re-roll,
+  // see updateProfileActivity below — can find it again without a scan.
   async function recordProfileActivity(authUser, bucket, data) {
-    if (!authUser) return false;
+    if (!authUser) return null;
     const id = genId();
     const payload = { ...data, recordedAt: Date.now() };
-    return FB.set(`users/${authUser.uid}/activity/${bucket}/${id}`, payload);
+    const ok = await FB.set(`users/${authUser.uid}/activity/${bucket}/${id}`, payload);
+    return ok ? id : null;
+  }
+
+  // v2.13.8: patches fields onto an EXISTING activity record (rather than
+  // creating a new one) — used to turn a giveaway entry's "Entered" status
+  // into "Claimed X" or "Picked as winner, did not claim" once the host
+  // confirms a winner or re-rolls. uid/bucket/recordId together identify
+  // the record; silently no-ops if any are missing (e.g. a guest entrant
+  // with no uid — there's no profile activity to update for them).
+  async function updateProfileActivity(uid, bucket, recordId, patch) {
+    if (!uid || !bucket || !recordId) return false;
+    return FB.update(
+      Object.fromEntries(Object.entries(patch).map(([k, v]) => [`users/${uid}/activity/${bucket}/${recordId}/${k}`, v]))
+    );
   }
 
   // The attendee landing view for logged-out visitors. Watches cd:session
@@ -3540,17 +3587,110 @@
   // ───────────────────────────────────────────────────────────
   // GIVEAWAY ENTRY PAGE (public, no auth)
   // ───────────────────────────────────────────────────────────
+  // v2.13.7: shows either "unlimited time" or a live countdown on the
+  // attendee's "You won!" screen, based on the claim window snapshotted
+  // onto wonPrize at confirm time. Ticks every second while mounted;
+  // stops (shows "Time's up") at zero rather than going negative. This
+  // is purely informational — nothing here revokes the prize or notifies
+  // the host; the host decides whether to re-roll, per explicit design
+  // decision (manual re-roll only, no auto-expiry actions).
+  function ClaimCountdown({ c, wonPrize }) {
+    const [now, setNow] = useState(Date.now());
+    const minutes = wonPrize ? (wonPrize.claimWindowMinutes || 0) : 0;
+    useEffect(() => {
+      if (!minutes) return undefined;
+      const interval = setInterval(() => setNow(Date.now()), 1000);
+      return () => clearInterval(interval);
+    }, [minutes]);
+
+    if (!minutes) {
+      return (
+        <div style={{ fontSize: 12, color: c.inkMute, fontWeight: 600, marginBottom: 14 }}>
+          You have unlimited time to claim this prize.
+        </div>
+      );
+    }
+
+    const confirmedAt = wonPrize.confirmedAt || now;
+    const deadline = confirmedAt + minutes * 60000;
+    const remainingMs = Math.max(0, deadline - now);
+    const remainingMin = Math.floor(remainingMs / 60000);
+    const remainingSec = Math.floor((remainingMs % 60000) / 1000);
+    const expired = remainingMs <= 0;
+
+    return (
+      <div style={{
+        display: "inline-block", background: expired ? (c.strawberry + "22") : (c.sun + "22"),
+        color: expired ? c.strawDeep : c.sunDeep, borderRadius: 10, padding: "6px 14px",
+        fontSize: 13, fontWeight: 700, marginBottom: 14,
+      }}>
+        {expired ? "Time's up — check with the host" : `Claim within: ${remainingMin}:${String(remainingSec).padStart(2, "0")}`}
+      </div>
+    );
+  }
+
+  // Formats a "HH:MM" 24h time string (from an <input type="time">) into
+  // a locale-friendly display like "6:00 PM". Falls back to the raw
+  // string if parsing fails for any reason, rather than showing nothing.
+  function formatTimeString(hhmm) {
+    if (!hhmm) return "";
+    const [h, m] = hhmm.split(":").map(Number);
+    if (!Number.isFinite(h) || !Number.isFinite(m)) return hhmm;
+    const d = new Date();
+    d.setHours(h, m, 0, 0);
+    return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  }
+
+  // v2.13.8: the "keep an eye on this page" alert box — shown on both the
+  // "You're entered!" waiting screen and the "You won!" screen. Purpose:
+  // since there's no push notification (see project decision to hold off
+  // on that), this is the main lever for making sure someone actually
+  // sees their result — tells them the drawing time/location if the host
+  // set one, and nudges them to stay on the page or sign in so a missed
+  // visit isn't a missed prize.
+  function DrawingInfoAlert({ c, session, authUser }) {
+    if (!session) return null;
+    const hasTime = !!session.drawingTime;
+    const hasLocation = !!session.drawingLocationLabel;
+
+    return (
+      <div style={{ background: c.blue + "14", border: `2px solid ${c.blue}`, borderRadius: 14, padding: "12px 14px", marginBottom: 14, textAlign: "left" }}>
+        {hasTime || hasLocation ? (
+          <div style={{ fontSize: 12, fontWeight: 700, color: c.ink, marginBottom: 4, display: "flex", alignItems: "center", gap: 6 }}>
+            <Icon name="star" size={13} /> Drawing {hasTime ? `at ${formatTimeString(session.drawingTime)}` : ""}{hasTime && hasLocation ? " · " : ""}{hasLocation ? session.drawingLocationLabel : ""}
+          </div>
+        ) : null}
+        <div style={{ fontSize: 11, color: c.inkSoft, lineHeight: 1.45 }}>
+          Keep this tab open{authUser ? "." : " or sign in — your result still shows in My Activity."}
+        </div>
+      </div>
+    );
+  }
+
   function GiveawayClaim({ c, sessionId, authUser, onGoogleSignIn, onSignOut, authBusy, authError }) {
     const [stage, setStage] = useState("loading");
     const [name, setName] = useState(() => getSavedTrainerName());
     const [wonPrize, setWonPrize] = useState(null); // { name, type, code?, description?, confirmed? }
     const [entrantCount, setEntrantCount] = useState(null); // live count for attendee waiting screen
+    // v2.13.8: drawing time/location for the "keep an eye on this" alert
+    // box (see DrawingInfoAlert below) — read once from the session on
+    // load, since these are set once at session start and don't change.
+    const [sessionInfo, setSessionInfo] = useState(null);
+    // v2.13.8: "On my way" acknowledgment — a genuine two-way signal
+    // (not just informational copy, per explicit product decision). The
+    // winner taps a button that writes onMyWay/onMyWayAt onto their own
+    // entrant record; the host's live GiveawaySession screen reads the
+    // same field to show a checkmark next to that winner's name, no
+    // push infrastructure required — just a Firebase watch the host
+    // already has open.
+    const [onMyWaySent, setOnMyWaySent] = useState(false);
     const fp = fingerprint();
     const myEntrantIdRef = useRef(null);
 
     const check = async () => {
       const sess = await FB.get("gw:session");
       if (!sess || sess.id !== sessionId) return setStage("nosession");
+      setSessionInfo(sess);
       const entrants = entrantsObjToArray(await FB.get("gw:entrants"));
       const mine = entrants.find(e => e.fp === fp);
       if (mine) {
@@ -3561,6 +3701,7 @@
           const entrantData = await FB.get(`gw:entrants/${mine.id}`);
           if (entrantData) { if (entrantData.wonPrize) {
             setWonPrize(entrantData.wonPrize);
+            setOnMyWaySent(!!entrantData.onMyWay);
             return setStage("won");
           } }
         }
@@ -3570,6 +3711,29 @@
     };
 
     useEffect(() => { check(); }, []);
+
+    // v2.13.8: bookmarkable-link hint. If someone entered, then bounced
+    // to another app/tab and lost the page, retyping the join flow from
+    // scratch is annoying. One quiet "copy link" button under the
+    // session code gets them straight back to this exact claim page
+    // (their fingerprint re-matches them to the same entrant on reload).
+    const [linkCopied, setLinkCopied] = useState(false);
+    const copyPageLink = async () => {
+      try {
+        await navigator.clipboard.writeText(window.location.href);
+        setLinkCopied(true);
+        setTimeout(() => setLinkCopied(false), 2000);
+      } catch (e) { reportIssue("giveaway:copyLink", e); }
+    };
+
+    const sendOnMyWay = async () => {
+      if (!myEntrantIdRef.current || onMyWaySent) return;
+      setOnMyWaySent(true); // optimistic — this is a low-stakes signal, not worth a busy spinner
+      await FB.update({
+        [`gw:entrants/${myEntrantIdRef.current}/onMyWay`]: true,
+        [`gw:entrants/${myEntrantIdRef.current}/onMyWayAt`]: Date.now(),
+      });
+    };
 
     useEffect(() => {
       let alive = true;
@@ -3601,6 +3765,32 @@
       };
       entrantRef.on("value", handler);
       return () => entrantRef.off("value", handler);
+    }, [stage]);
+
+    // v2.13.8: no push infra yet, so a winner whose tab isn't focused
+    // (backgrounded, phone locked) still needs some way to notice.
+    // Flash the tab title and pulse a vibration — both fire purely off
+    // the "won" stage transition above, no new watchers/infra needed.
+    // Title flash keeps going until the tab regains focus; vibration is
+    // a single best-effort pulse (silently no-ops on unsupported
+    // browsers/iOS Safari).
+    useEffect(() => {
+      if (stage !== "won") return undefined;
+      if (typeof navigator !== "undefined") { if (navigator.vibrate) { navigator.vibrate([200, 100, 200]); } }
+      const originalTitle = document.title;
+      let flashOn = false;
+      const flashInterval = setInterval(() => {
+        if (document.hasFocus()) { document.title = originalTitle; return; }
+        flashOn = !flashOn;
+        document.title = flashOn ? "🏆 You won a prize!" : originalTitle;
+      }, 1200);
+      const onFocus = () => { document.title = originalTitle; };
+      window.addEventListener("focus", onFocus);
+      return () => {
+        clearInterval(flashInterval);
+        window.removeEventListener("focus", onFocus);
+        document.title = originalTitle;
+      };
     }, [stage]);
 
     // Real-time listener: while waiting (not yet won), watch gw:session so
@@ -3653,7 +3843,14 @@
       myEntrantIdRef.current = id;
       const ok = await FB.set(`gw:entrants/${id}`, { name: entryName, fp, uid: authUser ? authUser.uid : null, entryMode, enteredAt: entryTime, won: false });
       if (!ok) return setStage("entererror");
-      await recordProfileActivity(authUser, "giveawayEntries", { sessionId, sessionCode: sessionCode(sessionId), entrantId: id, displayName: entryName, enteredAt: entryTime, eventName: sess.eventName || null });
+      // v2.13.8: stash the activity record's own id back onto the entrant
+      // node (activityRecordId) so the HOST side (confirmWinner/reroll in
+      // GiveawaySession, running on a different device with no access to
+      // this attendee's authUser) can later update this exact record —
+      // "Entered" -> "Claimed X" or "Picked as winner, did not claim" —
+      // instead of creating a confusing second entry.
+      const activityRecordId = await recordProfileActivity(authUser, "giveawayEntries", { sessionId, sessionCode: sessionCode(sessionId), entrantId: id, displayName: entryName, enteredAt: entryTime, eventName: sess.eventName || null, status: "entered" });
+      if (activityRecordId) await FB.set(`gw:entrants/${id}/activityRecordId`, activityRecordId);
       // Only persist a real (non-skipped) name — skipping shouldn't
       // overwrite a name saved from a previous visit, and we don't want
       // a generated ticket label silently becoming "your name" next time.
@@ -3717,6 +3914,9 @@
           ) : null) : null}
         </div>
 
+        <ClaimCountdown c={c} wonPrize={wonPrize} />
+        <DrawingInfoAlert c={c} session={sessionInfo} authUser={authUser} />
+
         {/* Code reveal for code-type prizes — button kept close to the top */}
         {wonPrize ? (wonPrize.code ? (
           <>
@@ -3762,6 +3962,21 @@
           </div>
         ) : null) : null}
 
+        {/* v2.13.8: "On my way" — a real two-way signal, not just copy.
+            Writes onMyWay/onMyWayAt onto this entrant's own record; the
+            host's live screen shows a checkmark next to this winner's
+            name once it lands. Shown for every prize type — even a code
+            winner benefits from letting the host know they've seen it. */}
+        {onMyWaySent ? (
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, color: c.grassDeep, fontWeight: 700, fontSize: 13, marginBottom: 14 }}>
+            <Icon name="check" size={14} /> Host notified you're on your way
+          </div>
+        ) : (
+          <StickerBtn fill={c.blue} shadow={c.blueDeep} onClick={sendOnMyWay} style={{ width: "100%", marginBottom: 14, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+            <Icon name="external" size={14} /> I'm on my way
+          </StickerBtn>
+        )}
+
         <p style={{ fontSize: 12, color: c.inkMute, lineHeight: 1.5 }}>Congratulations, {name}! 🎊</p>
       </Paper>
     );
@@ -3785,9 +4000,12 @@
           <span style={{ fontSize: 10, color: c.inkMute, letterSpacing: 1, fontWeight: 700 }}>SESSION</span>
           <span style={{ fontFamily: "monospace", fontSize: 13, fontWeight: 700, color: c.ink, letterSpacing: 2 }}>{sessionCode(sessionId)}</span>
         </div>
-        <p style={{ fontSize: 11, color: c.inkMute, marginBottom: 16, lineHeight: 1.4 }}>If the host needs to verify your entry, they'll ask you to show this code — it confirms you're part of today's live session.</p>
-        <p style={{ fontSize: 13, color: c.inkSoft, lineHeight: 1.5, marginBottom: 6 }}>Good luck! Winners will be announced live by the host.</p>
-        <p style={{ fontSize: 11, color: c.inkMute, lineHeight: 1.4 }}>Keep this page open — you'll be notified here if you win!</p>
+        <p style={{ fontSize: 11, color: c.inkMute, marginBottom: 10, lineHeight: 1.4 }}>If the host needs to verify your entry, they'll ask you to show this code — it confirms you're part of today's live session.</p>
+        <button onClick={copyPageLink} style={{ background: "none", border: "none", color: c.blue, fontSize: 11, fontWeight: 700, cursor: "pointer", padding: "4px 8px", marginBottom: 12, display: "inline-flex", alignItems: "center", gap: 5 }}>
+          <Icon name="external" size={11} /> {linkCopied ? "Link copied!" : "Copy link to find your way back"}
+        </button>
+        <DrawingInfoAlert c={c} session={sessionInfo} authUser={authUser} />
+        <p style={{ fontSize: 13, color: c.inkSoft, lineHeight: 1.5 }}>Good luck! Winners are announced live by the host.</p>
       </Paper>
     );
 
@@ -4667,6 +4885,30 @@
     const [selectedEventId, setSelectedEventId] = useState("");
     const [selectedEventName, setSelectedEventName] = useState("");
 
+    // v2.13.7: optional prize claim timer. "Unlimited" (0) is the default
+    // so existing hosts see no behavior change unless they opt in. When
+    // set, this is informational only — see claimWindowMinutes usage on
+    // the attendee "You won!" screen and the host's live countdown. No
+    // auto-revert on expiry (host decides whether to re-roll), per
+    // explicit product decision.
+    const [claimWindowMinutes, setClaimWindowMinutes] = useState(0);
+
+    // v2.13.8: drawing time + location, set once per session (applies to
+    // every winner drawn that session, same scope as the claim timer).
+    // Saved locations (name + lat/lng) live at gw:locations, a small
+    // reusable database managed inline in the setup accordion below —
+    // no separate settings screen, since a host wants to manage these
+    // right when starting a session, not navigate away to a different
+    // page first.
+    const [drawingTime, setDrawingTime] = useState(""); // "" = not set, else "HH:MM" local time string
+    const [drawingLocationId, setDrawingLocationId] = useState(""); // selected saved location, or "" for manual
+    const [drawingLocationManual, setDrawingLocationManual] = useState("");
+    const [savedLocations, setSavedLocations] = useState([]);
+    const [showLocationForm, setShowLocationForm] = useState(false);
+    const [newLocationName, setNewLocationName] = useState("");
+    const [newLocationLat, setNewLocationLat] = useState("");
+    const [newLocationLng, setNewLocationLng] = useState("");
+
     useEffect(() => {
       const unwatch1 = FB.watch("gw:prizes", (val) => { setPrizes(prizesObjToArray(val)); setLoading(false); });
       const unwatch2 = FB.watch("gw:entrants", (val) => setEntrants(entrantsObjToArray(val)));
@@ -4675,8 +4917,30 @@
         arr.sort((a, b) => (b.savedAt || 0) - (a.savedAt || 0));
         setTemplates(arr);
       });
-      return () => { unwatch1(); unwatch2(); unwatch3(); };
+      const unwatch4 = FB.watch("gw:locations", (val) => {
+        const arr = val ? Object.entries(val).map(([id, v]) => ({ id, ...v })) : [];
+        arr.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+        setSavedLocations(arr);
+      });
+      return () => { unwatch1(); unwatch2(); unwatch3(); unwatch4(); };
     }, []);
+
+    const addLocation = async () => {
+      const name = newLocationName.trim();
+      const lat = Number(newLocationLat);
+      const lng = Number(newLocationLng);
+      if (!name || !Number.isFinite(lat) || !Number.isFinite(lng)) return;
+      const id = genId();
+      await FB.set(`gw:locations/${id}`, { name, lat, lng });
+      setNewLocationName("");
+      setNewLocationLat("");
+      setNewLocationLng("");
+    };
+
+    const removeLocation = async (id) => {
+      await FB.remove(`gw:locations/${id}`);
+      if (drawingLocationId === id) setDrawingLocationId("");
+    };
 
     // Load cached Campfire events for the event picker
     useEffect(() => {
@@ -4808,10 +5072,28 @@
       const existing = await FB.get("gw:session");
       if (existing) { setScreen("session"); return; }
       const sessId = genId();
+      // v2.13.8: drawing time/location, resolved once at session start.
+      // A manually-typed location wins over a saved-location selection if
+      // both are somehow present (manual entry is the more specific,
+      // more recently-edited signal).
+      const selectedLoc = savedLocations.find(l => l.id === drawingLocationId);
+      const drawingLocationLabel = drawingLocationManual.trim() || (selectedLoc ? selectedLoc.name : "");
+      const drawingLocationLat = drawingLocationManual.trim() ? null : (selectedLoc ? selectedLoc.lat : null);
+      const drawingLocationLng = drawingLocationManual.trim() ? null : (selectedLoc ? selectedLoc.lng : null);
       await FB.set("gw:session", {
         id: sessId, startedAt: Date.now(), currentPrizeId: null, draws: null,
         eventId: selectedEventId || null,
         eventName: selectedEventName || null,
+        // v2.13.7: 0 means unlimited claim time (no timer shown to
+        // winners). Any positive number is the number of minutes a
+        // winner has before the host may choose to re-roll.
+        claimWindowMinutes: Number(claimWindowMinutes) || 0,
+        // v2.13.8: drawing time ("HH:MM" 24h local string, or "" for not
+        // set) and location (label + optional lat/lng if it came from a
+        // saved location, for a future "get directions" link).
+        drawingTime: drawingTime || "",
+        drawingLocationLabel: drawingLocationLabel || "",
+        drawingLocationLat, drawingLocationLng,
       });
       await FB.set("gw:entrants", null);
       setScreen("session");
@@ -4997,6 +5279,98 @@
                 <div style={{ fontSize: 11, color: c.purple, fontWeight: 600, marginTop: 6 }}>This session will be linked to: {selectedEventName}</div>
               ) : null}
             </Paper>
+
+            {/* Prize claim timer (v2.13.7) — informational only; see the
+                comment on gw:session.claimWindowMinutes above. */}
+            <Paper c={c} accent={c.sun} style={{ marginBottom: 16, padding: "14px 16px" }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: c.inkSoft, marginBottom: 8 }}>Prize claim timer</div>
+              <select value={claimWindowMinutes} onChange={e => setClaimWindowMinutes(Number(e.target.value))} style={{ height: 48, minHeight: 48, padding: "0 42px 0 14px", lineHeight: "normal" }}>
+                <option value={0}>Unlimited time</option>
+                <option value={5}>5 minutes</option>
+                <option value={10}>10 minutes</option>
+                <option value={15}>15 minutes</option>
+                <option value={30}>30 minutes</option>
+              </select>
+              <div style={{ fontSize: 11, color: c.inkMute, marginTop: 6, lineHeight: 1.4 }}>
+                {claimWindowMinutes > 0
+                  ? `Winners will see a ${claimWindowMinutes}-minute countdown to claim their prize. Nothing happens automatically when it runs out — you decide whether to re-roll.`
+                  : "Winners won't see a countdown — no time pressure to claim."}
+              </div>
+            </Paper>
+
+            {/* Drawing time + location (v2.13.8) — shown to winners on
+                their "You won!" screen and in the pre-draw alert box, so
+                they know when/where to be. Set once per session, same
+                scope as the claim timer above. Saved locations are a
+                small reusable database (gw:locations) managed right
+                here rather than a separate settings page. */}
+            <Paper c={c} accent={c.purple} style={{ marginBottom: 16, padding: "14px 16px" }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: c.inkSoft, marginBottom: 8 }}>Drawing time & location</div>
+
+              <div style={{ marginBottom: 10 }}>
+                <div style={{ fontSize: 11, color: c.inkMute, fontWeight: 600, marginBottom: 4 }}>Time (optional)</div>
+                <input type="time" value={drawingTime} onChange={e => setDrawingTime(e.target.value)} style={{ height: 48, minHeight: 48 }} />
+              </div>
+
+              <div style={{ marginBottom: 8 }}>
+                <div style={{ fontSize: 11, color: c.inkMute, fontWeight: 600, marginBottom: 4 }}>Location (optional)</div>
+                {savedLocations.length > 0 ? (
+                  <select
+                    value={drawingLocationId}
+                    onChange={e => { setDrawingLocationId(e.target.value); if (e.target.value) setDrawingLocationManual(""); }}
+                    style={{ height: 48, minHeight: 48, padding: "0 42px 0 14px", lineHeight: "normal", marginBottom: 8 }}
+                  >
+                    <option value="">Type a location instead…</option>
+                    {savedLocations.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
+                  </select>
+                ) : null}
+                {(!savedLocations.length || !drawingLocationId) ? (
+                  <input
+                    value={drawingLocationManual}
+                    onChange={e => { setDrawingLocationManual(e.target.value); if (e.target.value) setDrawingLocationId(""); }}
+                    placeholder="e.g. Main pavilion, near the fountain"
+                  />
+                ) : null}
+              </div>
+
+              <button onClick={() => setShowLocationForm(!showLocationForm)} style={{ background: "none", border: "none", color: c.purple, fontWeight: 700, fontSize: 11, cursor: "pointer", textDecoration: "underline", padding: 0 }}>
+                {showLocationForm ? "Hide saved locations" : "Manage saved locations"}
+              </button>
+
+              {showLocationForm ? (
+                <div style={{ marginTop: 10, background: c.paperDim, borderRadius: 12, padding: "10px 12px" }}>
+                  {savedLocations.length > 0 ? (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 10 }}>
+                      {savedLocations.map(l => (
+                        <div key={l.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, background: "#fff", borderRadius: 8, padding: "6px 10px" }}>
+                          <div style={{ minWidth: 0 }}>
+                            <div style={{ fontSize: 12, fontWeight: 700, color: c.ink }}>{l.name}</div>
+                            <div style={{ fontSize: 10, color: c.inkMute, fontFamily: "monospace" }}>{l.lat}, {l.lng}</div>
+                          </div>
+                          <button onClick={() => removeLocation(l.id)} style={{ background: "transparent", border: "none", color: c.strawberry, cursor: "pointer", fontSize: 16, fontWeight: 700, flexShrink: 0 }}>×</button>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div style={{ fontSize: 11, color: c.inkMute, marginBottom: 10 }}>No saved locations yet.</div>
+                  )}
+                  <div style={{ fontSize: 11, fontWeight: 700, color: c.inkSoft, marginBottom: 6 }}>Add a location</div>
+                  <input value={newLocationName} onChange={e => setNewLocationName(e.target.value)} placeholder="Name (e.g. Garden Grove Park)" style={{ marginBottom: 6, fontSize: 13, padding: "8px 10px" }} />
+                  <div className="gg-date-row" style={{ marginBottom: 8 }}>
+                    <div>
+                      <input type="number" step="0.0001" value={newLocationLat} onChange={e => setNewLocationLat(e.target.value)} placeholder="Latitude" style={{ fontSize: 13, padding: "8px 10px" }} />
+                    </div>
+                    <div>
+                      <input type="number" step="0.0001" value={newLocationLng} onChange={e => setNewLocationLng(e.target.value)} placeholder="Longitude" style={{ fontSize: 13, padding: "8px 10px" }} />
+                    </div>
+                  </div>
+                  <StickerBtn fill={c.purple} shadow={c.purpleDeep} small onClick={addLocation} disabled={!newLocationName.trim() || !newLocationLat || !newLocationLng} style={{ width: "100%" }}>
+                    Save location
+                  </StickerBtn>
+                </div>
+              ) : null}
+            </Paper>
+
             <div style={{ textAlign: "center", marginBottom: 20 }}>
               <StickerBtn fill={c.orange} shadow={c.orangeDeep} onClick={startSession} disabled={prizes.length === 0} style={{ fontSize: 17, padding: "16px 36px", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
                 <Icon name="play" size={16} /> START GIVEAWAY
@@ -5106,6 +5480,19 @@
     const [wonCodeReward, setWonCodeReward] = useState(null);
     // For special prizes: delivery confirmation step
     const [awaitingDelivery, setAwaitingDelivery] = useState(false);
+    // v2.13.7: guards the whole confirm/re-roll button row while
+    // confirmWinner's async write chain (decrementCounter, FB.update,
+    // FB.push) is in flight. Without this, a double-tap on "Confirm &
+    // Next" — very plausible at a loud live event — could fire
+    // confirmWinner() twice before the first call's `won: true` write
+    // propagated back through the gw:entrants watcher, letting the same
+    // entrant get drawn and confirmed as a winner a second time.
+    const [confirming, setConfirming] = useState(false);
+    const { confirmState, requestConfirm, handleCancel, handleConfirm } = useConfirm();
+    // v2.13.7: copy-to-clipboard winner announcement (see buildAnnouncement
+    // below and its render site) — short-lived "Copied!" feedback state,
+    // same pattern as PassportSession's copyLink.
+    const [announceCopied, setAnnounceCopied] = useState(false);
 
     useEffect(() => {
       const unwatch1 = FB.watch("gw:session", (val) => { setSession(val); setSessionLoaded(true); });
@@ -5173,7 +5560,7 @@
     };
 
     const draw = () => {
-      if (!selectedPrize || eligible.length === 0 || spinning) return;
+      if (!selectedPrize || eligible.length === 0 || spinning || confirming) return;
       setSpinning(true);
       setWinner(null);
       setWonCode(null);
@@ -5214,7 +5601,7 @@
     };
 
     const confirmWinner = async () => {
-      if (!winner) return;
+      if (!winner || confirming) return;
       const prize = prizes.find(p => p.id === winner.prizeId);
       if (!prize) return;
 
@@ -5225,59 +5612,99 @@
         return;
       } }
 
-      let codeValue = null;
-      let codeReward = null;
-      // If this is a code prize (or special w/ code delivery), claim a code
-      const specialWithCodeDelivery = prize.type === "special" ? prize.delivery === "code" : false;
-      if (prize.type === "code" || specialWithCodeDelivery) {
-        const claimed = await claimCodeForWinner(winner.name);
-        if (!claimed) {
-          alert("No unclaimed codes available in the pool. Add more codes in Code Drop, or change this prize.");
+      // v2.13.7: busy-guard the whole async chain below, and re-verify
+      // against a fresh Firebase read (not local `entrants` state, which
+      // may not have caught up yet) that this entrant hasn't already been
+      // confirmed a winner. Closes the double-tap / two-host-devices race
+      // that could otherwise draw and confirm the same person twice.
+      setConfirming(true);
+      try {
+        const freshEntrant = await FB.get(`gw:entrants/${winner.entrantId}`);
+        if (freshEntrant ? freshEntrant.won : false) {
+          // Someone else's confirm already landed for this entrant —
+          // don't award a second prize. Reset to a clean draw state.
+          setWinner(null);
+          setSpinName("");
           setAwaitingDelivery(false);
           return;
         }
-        codeValue = claimed.value;
-        codeReward = claimed.reward;
-        setWonCode(codeValue);
-        setWonCodeReward(codeReward);
+
+        let codeValue = null;
+        let codeReward = null;
+        // If this is a code prize (or special w/ code delivery), claim a code
+        const specialWithCodeDelivery = prize.type === "special" ? prize.delivery === "code" : false;
+        if (prize.type === "code" || specialWithCodeDelivery) {
+          const claimed = await claimCodeForWinner(winner.name);
+          if (!claimed) {
+            alert("No unclaimed codes available in the pool. Add more codes in Code Drop, or change this prize.");
+            setAwaitingDelivery(false);
+            return;
+          }
+          codeValue = claimed.value;
+          codeReward = claimed.reward;
+          setWonCode(codeValue);
+          setWonCodeReward(codeReward);
+        }
+
+        // Build the wonPrize object for the attendee's screen
+        const wonPrize = {
+          name: prize.name,
+          type: prize.type,
+          description: prize.description || null,
+          delivery: prize.delivery || null,
+          confirmed: true,
+          // v2.13.7: claim timer, snapshotted onto the win itself rather
+          // than read live from gw:session — the session (and its
+          // claimWindowMinutes) gets wiped when the giveaway ends, but a
+          // winner should still be able to see how much time they had /
+          // have left if they reload the claim page before then.
+          claimWindowMinutes: session.claimWindowMinutes || 0,
+          confirmedAt: Date.now(),
+        };
+        if (codeValue) wonPrize.code = codeValue;
+        if (codeReward) wonPrize.codeReward = codeReward;
+
+        // Decrement remaining via transaction — lost-update safe if the host
+        // somehow double-confirms or has two devices open on this session.
+        const newRemainingResult = await decrementCounter(`gw:prizes/${winner.prizeId}/remaining`);
+        const newRemaining = newRemainingResult !== null ? newRemainingResult : Math.max(0, (prize.remaining ?? 1) - 1);
+
+        const confirmedAt = Date.now();
+        // Mark entrant as won + store wonPrize
+        await FB.update({
+          [`gw:entrants/${winner.entrantId}/won`]: true,
+          [`gw:entrants/${winner.entrantId}/wonPrize`]: wonPrize,
+        });
+        await FB.push("gw:draws", {
+          entrantId: winner.entrantId, name: winner.name,
+          prizeId: winner.prizeId, prizeName: prize.name,
+          prizeType: prize.type, code: codeValue || null, codeReward: codeReward || null,
+          time: confirmedAt,
+        });
+
+        // v2.13.8: patch the winner's OWN My Activity record (not create
+        // a new one) so it reads "Claimed [prize] @ [time]" instead of a
+        // static "Giveaway Entry". Runs on the HOST's device, using the
+        // uid/activityRecordId the attendee's own entry write stashed on
+        // the entrant node — a guest entrant (no uid) or a pre-v2.13.8
+        // entry (no activityRecordId) just silently has nothing to patch.
+        if (freshEntrant ? freshEntrant.uid : false) {
+          await updateProfileActivity(freshEntrant.uid, "giveawayEntries", freshEntrant.activityRecordId, {
+            status: "claimed", prizeName: prize.name, claimedAt: confirmedAt,
+          });
+        }
+
+        // Show code to host for a moment (for code prizes), then reset
+        if (!codeValue) {
+          setWinner(null);
+          setSpinName("");
+          setAwaitingDelivery(false);
+        }
+        // For code prizes, leave winner and wonCode visible until host clicks "Next"
+        if (newRemaining <= 0) setSelectedPrizeId("");
+      } finally {
+        setConfirming(false);
       }
-
-      // Build the wonPrize object for the attendee's screen
-      const wonPrize = {
-        name: prize.name,
-        type: prize.type,
-        description: prize.description || null,
-        delivery: prize.delivery || null,
-        confirmed: true,
-      };
-      if (codeValue) wonPrize.code = codeValue;
-      if (codeReward) wonPrize.codeReward = codeReward;
-
-      // Decrement remaining via transaction — lost-update safe if the host
-      // somehow double-confirms or has two devices open on this session.
-      const newRemainingResult = await decrementCounter(`gw:prizes/${winner.prizeId}/remaining`);
-      const newRemaining = newRemainingResult !== null ? newRemainingResult : Math.max(0, (prize.remaining ?? 1) - 1);
-
-      // Mark entrant as won + store wonPrize
-      await FB.update({
-        [`gw:entrants/${winner.entrantId}/won`]: true,
-        [`gw:entrants/${winner.entrantId}/wonPrize`]: wonPrize,
-      });
-      await FB.push("gw:draws", {
-        entrantId: winner.entrantId, name: winner.name,
-        prizeId: winner.prizeId, prizeName: prize.name,
-        prizeType: prize.type, code: codeValue || null, codeReward: codeReward || null,
-        time: Date.now(),
-      });
-
-      // Show code to host for a moment (for code prizes), then reset
-      if (!codeValue) {
-        setWinner(null);
-        setSpinName("");
-        setAwaitingDelivery(false);
-      }
-      // For code prizes, leave winner and wonCode visible until host clicks "Next"
-      if (newRemaining <= 0) setSelectedPrizeId("");
     };
 
     const dismissWinner = () => {
@@ -5286,6 +5713,26 @@
       setWonCodeReward(null);
       setSpinName("");
       setAwaitingDelivery(false);
+      setAnnounceCopied(false);
+    };
+
+    // v2.13.7: builds the shareable "you won!" text block a host can copy
+    // and paste into Discord/a group chat/wherever they announce winners.
+    // Short on purpose — this is meant to be dropped into a chat message
+    // as-is, not edited first.
+    const buildAnnouncement = () => {
+      if (!winner) return "";
+      const prize = prizes.find(p => p.id === winner.prizeId);
+      const prizeName = prize ? prize.name : "a prize";
+      return `@${winner.name} you won ${prizeName}! See the host to receive the prize!`;
+    };
+
+    const copyAnnouncement = async () => {
+      try {
+        await navigator.clipboard.writeText(buildAnnouncement());
+        setAnnounceCopied(true);
+        setTimeout(() => setAnnounceCopied(false), 2500);
+      } catch (e) { /* clipboard unavailable — nothing to fall back to here */ }
     };
 
     // Re-roll: the drawn entrant isn't available/doesn't want the prize.
@@ -5295,7 +5742,19 @@
     // Weighted pool is rebuilt excluding the skipped entrant so bonus
     // entries are still honoured for everyone else in the re-roll.
     const reroll = () => {
-      if (!winner || spinning) return;
+      if (!winner || spinning || confirming) return;
+      // v2.13.8: patch the outgoing entrant's own My Activity record so
+      // it reads "Picked as winner @ [time], did not claim" instead of
+      // staying stuck on "Entered". Best-effort/fire-and-forget — reroll
+      // itself stays synchronous like before, this just piggybacks off
+      // the local entrants array (uid/activityRecordId already exposed
+      // via entrantsObjToArray) rather than adding a fresh server read.
+      const outgoing = entrants.find(e => e.id === winner.entrantId);
+      if (outgoing && outgoing.uid && outgoing.activityRecordId) {
+        updateProfileActivity(outgoing.uid, "giveawayEntries", outgoing.activityRecordId, {
+          status: "picked_not_claimed", pickedAt: Date.now(),
+        });
+      }
       const eligibleForReroll = eligible.filter(e => e.id !== winner.entrantId);
       setWinner(null);
       setWonCode(null);
@@ -5323,7 +5782,14 @@
       }, 80);
     };
 
-    const endGiveaway = async () => {
+    // v2.13.7: renamed from endGiveaway — now the confirmed action fired
+    // via requestConfirm below, rather than firing directly off the
+    // button click. Ending wipes gw:entrants/gw:draws immediately with
+    // no undo, so a single mistaken tap during a live event could lose
+    // the whole entrant pool; this matches the confirm-gated pattern
+    // already used for other destructive actions in this file (delete
+    // code, remove all prizes, etc).
+    const doEndGiveaway = async () => {
       setEnding(true);
       setEndError("");
       try {
@@ -5353,7 +5819,12 @@
           <BackButton c={c} onClick={onExit} />
           <div style={{ flex: 1 }}>
             <div style={{ fontWeight: 700, fontSize: 22, color: "#fff", textShadow: "0 2px 4px rgba(0,0,0,0.25)", lineHeight: 1.1 }}>Giveaway</div>
-            <div style={{ fontSize: 13, color: c.strawberry, fontWeight: 600, marginTop: 2 }}>● LIVE</div>
+            <div style={{ fontSize: 13, color: c.strawberry, fontWeight: 600, marginTop: 2, display: "flex", alignItems: "center", gap: 8 }}>
+              ● LIVE
+              {session.claimWindowMinutes > 0 ? (
+                <span style={{ background: "#fff", color: c.sunDeep, borderRadius: 8, padding: "1px 8px", fontSize: 11, fontWeight: 700 }}>{session.claimWindowMinutes}-min timer</span>
+              ) : null}
+            </div>
           </div>
           <div style={{ background: "#fff", borderRadius: 10, padding: "6px 10px", border: `2px solid ${c.paperEdge}`, textAlign: "center" }} title="Session code — should match the code on attendees' screens">
             <div style={{ fontSize: 9, color: c.inkMute, letterSpacing: 1, fontWeight: 700 }}>SESSION</div>
@@ -5444,7 +5915,7 @@
 
           {/* Draw / Confirm flow */}
           {!winner ? (
-            <StickerBtn fill={c.orange} shadow={c.orangeDeep} onClick={draw} disabled={spinning || !selectedPrize || eligible.length === 0} style={{ fontSize: 16, padding: "14px 32px", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+            <StickerBtn fill={c.orange} shadow={c.orangeDeep} onClick={draw} disabled={spinning || confirming || !selectedPrize || eligible.length === 0} style={{ fontSize: 16, padding: "14px 32px", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
               <Icon name="play" size={15} /> {spinning ? "Drawing…" : "Draw Winner"}
             </StickerBtn>
           ) : wonCode ? (
@@ -5452,9 +5923,14 @@
               <div style={{ fontSize: 13, color: c.inkSoft, marginBottom: 12 }}>
                 Code sent to <strong>{winner.name}</strong>'s phone!
               </div>
-              <StickerBtn fill={c.grassMid} shadow={c.grassDeep} onClick={dismissWinner} style={{ fontSize: 16, padding: "14px 32px" }}>
-                Next Draw
-              </StickerBtn>
+              <div style={{ display: "flex", gap: 10, justifyContent: "center", flexWrap: "wrap" }}>
+                <StickerBtn fill={c.grassMid} shadow={c.grassDeep} onClick={dismissWinner} style={{ fontSize: 16, padding: "14px 32px" }}>
+                  Next Draw
+                </StickerBtn>
+                <StickerBtn fill={c.paperDim} shadow={c.paperEdge} onClick={copyAnnouncement} style={{ color: c.ink, fontSize: 13, display: "inline-flex", alignItems: "center", gap: 6 }}>
+                  <Icon name="external" size={12} /> {announceCopied ? "Copied!" : "Copy announcement"}
+                </StickerBtn>
+              </div>
             </div>
           ) : awaitingDelivery ? (
             <div>
@@ -5465,13 +5941,13 @@
                 <Icon name="star" size={12} style={{ marginRight: 4 }} /> Confirm you've delivered this prize
               </div>
               <div style={{ display: "flex", gap: 10, justifyContent: "center", flexWrap: "wrap" }}>
-                <StickerBtn fill={c.grassMid} shadow={c.grassDeep} onClick={confirmWinner} style={{ fontSize: 15, padding: "12px 24px", display: "inline-flex", alignItems: "center", gap: 6 }}>
-                  <Icon name="check" size={14} /> Delivered
+                <StickerBtn fill={c.grassMid} shadow={c.grassDeep} onClick={confirmWinner} disabled={confirming} style={{ fontSize: 15, padding: "12px 24px", display: "inline-flex", alignItems: "center", gap: 6 }}>
+                  <Icon name="check" size={14} /> {confirming ? "Confirming…" : "Delivered"}
                 </StickerBtn>
-                <StickerBtn fill={c.sun} shadow={c.sunDeep} onClick={reroll} style={{ color: c.ink, fontSize: 13, display: "inline-flex", alignItems: "center", gap: 6 }}>
+                <StickerBtn fill={c.sun} shadow={c.sunDeep} onClick={reroll} disabled={confirming} style={{ color: c.ink, fontSize: 13, display: "inline-flex", alignItems: "center", gap: 6 }}>
                   <Icon name="undo" size={12} /> Re-roll
                 </StickerBtn>
-                <StickerBtn fill={c.paperDim} shadow={c.paperEdge} onClick={dismissWinner} style={{ color: c.ink, fontSize: 13 }}>
+                <StickerBtn fill={c.paperDim} shadow={c.paperEdge} onClick={dismissWinner} disabled={confirming} style={{ color: c.ink, fontSize: 13 }}>
                   Cancel
                 </StickerBtn>
               </div>
@@ -5482,11 +5958,16 @@
                 wins <strong>{selectedPrize ? selectedPrize.name : "a prize"}</strong>!
               </div>
               <div style={{ display: "flex", gap: 10, justifyContent: "center", flexWrap: "wrap" }}>
-                <StickerBtn fill={c.grassMid} shadow={c.grassDeep} onClick={confirmWinner} style={{ fontSize: 16, padding: "14px 28px" }}>
-                  Confirm &amp; Next
+                <StickerBtn fill={c.grassMid} shadow={c.grassDeep} onClick={confirmWinner} disabled={confirming} style={{ fontSize: 16, padding: "14px 28px" }}>
+                  {confirming ? "Confirming…" : <React.Fragment>Confirm &amp; Next</React.Fragment>}
                 </StickerBtn>
-                <StickerBtn fill={c.sun} shadow={c.sunDeep} onClick={reroll} style={{ color: c.ink, fontSize: 14, padding: "14px 22px", display: "inline-flex", alignItems: "center", gap: 6 }}>
+                <StickerBtn fill={c.sun} shadow={c.sunDeep} onClick={reroll} disabled={confirming} style={{ color: c.ink, fontSize: 14, padding: "14px 22px", display: "inline-flex", alignItems: "center", gap: 6 }}>
                   <Icon name="undo" size={14} /> Re-roll
+                </StickerBtn>
+              </div>
+              <div style={{ marginTop: 10 }}>
+                <StickerBtn fill={c.paperDim} shadow={c.paperEdge} small onClick={copyAnnouncement} disabled={confirming} style={{ color: c.ink, fontSize: 12, display: "inline-flex", alignItems: "center", gap: 6 }}>
+                  <Icon name="external" size={11} /> {announceCopied ? "Copied!" : "Copy announcement"}
                 </StickerBtn>
               </div>
               <div style={{ marginTop: 10, fontSize: 11, color: c.inkMute }}>Re-roll if {winner.name} isn't available to claim this prize.</div>
@@ -5516,7 +5997,15 @@
             <div style={{ textAlign: "center", color: c.inkMute, fontSize: 13, padding: "10px 0" }}>Waiting for first entry…</div>
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 220, overflowY: "auto" }}>
-              {entrants.slice().sort((a, b) => (a.enteredAt || 0) - (b.enteredAt || 0)).map((e, idx) => {
+              {/* v2.13.7: winners sorted to the bottom (still grouped by
+                  entry order within each group) instead of interleaved
+                  chronologically with still-eligible entrants — at 100+
+                  entrants, scanning "who's still eligible" during a live
+                  draw was tedious with wins scattered throughout the list. */}
+              {entrants.slice().sort((a, b) => {
+                if (!!a.won !== !!b.won) return a.won ? 1 : -1;
+                return (a.enteredAt || 0) - (b.enteredAt || 0);
+              }).map((e, idx) => {
                 const rowBg = e.won ? (c.grassMid + "1A") : c.paperDim;
                 const totalEntries = 1 + (e.extraEntries || 0);
                 return (
@@ -5530,7 +6019,18 @@
                       <span style={{ flexShrink: 0, background: c.sun + "33", color: c.sunDeep, fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 8, letterSpacing: 0.5 }}>+{e.extraEntries} bonus</span>
                     ) : null}
                     {e.won ? (
-                      <span style={{ flexShrink: 0, fontSize: 11, fontWeight: 700, color: c.grassDeep, letterSpacing: 1 }}>WON</span>
+                      <span style={{ flexShrink: 0, display: "inline-flex", alignItems: "center", gap: 4 }}>
+                        {/* v2.13.8: shows once the winner taps "I'm on my
+                            way" on their own device — a real two-way
+                            signal read straight off their entrant record,
+                            no push infrastructure needed. */}
+                        {e.onMyWay ? (
+                          <span title="On their way" style={{ display: "inline-flex", alignItems: "center", gap: 3, color: c.blueDeep, fontSize: 10, fontWeight: 700 }}>
+                            <Icon name="check" size={11} />
+                          </span>
+                        ) : null}
+                        <span style={{ fontSize: 11, fontWeight: 700, color: c.grassDeep, letterSpacing: 1 }}>WON</span>
+                      </span>
                     ) : (
                       <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
                         {/* Remove bonus entry button — only shown when bonuses exist */}
@@ -5565,7 +6065,7 @@
         </Paper>
 
         <div style={{ textAlign: "center" }}>
-          <StickerBtn fill={c.strawberry} shadow={c.strawDeep} onClick={endGiveaway} disabled={ending} style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+          <StickerBtn fill={c.strawberry} shadow={c.strawDeep} onClick={() => requestConfirm("End this giveaway? This clears the entrant list and draw log (past winners stay in Past Giveaways history).", doEndGiveaway)} disabled={ending} style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
             <Icon name="stop" size={14} /> {ending ? "Ending…" : "End Giveaway"}
           </StickerBtn>
           {endError ? (
@@ -5574,6 +6074,7 @@
             </div>
           ) : null}
         </div>
+        <ConfirmModal confirmState={confirmState} onCancel={handleCancel} onConfirm={handleConfirm} />
       </div>
     );
   }
@@ -5686,10 +6187,19 @@
             <div style={{ fontSize: 12, color: c.inkMute, marginBottom: 8 }}>{(h.draws || []).length} prize{(h.draws || []).length !== 1 ? 's' : ''} awarded</div>
             {(h.draws || []).length > 0 ? (
               <div style={{ maxHeight: 140, overflowY: "auto" }}>
+                {/* v2.13.7: each draw now shows its own confirmed-at time
+                    (d.time was already recorded and exported to CSV, just
+                    not surfaced in this in-app view) alongside the winner
+                    name and prize. */}
                 {h.draws.map((d, i) => (
-                  <div key={i} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, padding: "4px 0", borderBottom: i < h.draws.length - 1 ? `1px dashed ${c.paperEdge}` : "none" }}>
+                  <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", fontSize: 12, padding: "4px 0", borderBottom: i < h.draws.length - 1 ? `1px dashed ${c.paperEdge}` : "none" }}>
                     <span style={{ fontWeight: 600, color: c.ink }}>{d.name}</span>
-                    <span style={{ color: c.inkMute }}>{d.prizeName}</span>
+                    <span style={{ textAlign: "right" }}>
+                      <span style={{ color: c.inkMute }}>{d.prizeName}</span>
+                      {d.time ? (
+                        <span style={{ display: "block", color: c.inkMute, fontSize: 10, opacity: 0.75 }}>{new Date(d.time).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
+                      ) : null}
+                    </span>
                   </div>
                 ))}
               </div>
@@ -6173,10 +6683,14 @@
         <div style={{ fontSize: 12, color: c.inkSoft, marginBottom: 14 }}>{session.locationLabel} &middot; within {session.radiusMeters || CHECKIN_RADIUS_METERS}m</div>
 
         {!authUser ? (
+          // v2.13.7: brightened to match the same visual weight as the
+          // Code Drop claim page's login CTA — was a plain blue button
+          // with a full sentence of muted copy; now a full-width sun
+          // button with badge-earning copy, one line of body text.
           <div style={{ background: c.blue + "14", border: `2px solid ${c.blue}`, borderRadius: 14, padding: "12px 14px" }}>
-            <div style={{ fontSize: 12, color: c.inkSoft, lineHeight: 1.5, marginBottom: 10 }}>Sign in to check in and start your passport.</div>
-            <StickerBtn fill={c.blue} shadow={c.blueDeep} small onClick={onGoogleSignIn} disabled={authBusy}>
-              {authBusy ? "Signing in…" : "Sign in"}
+            <div style={{ fontSize: 12, color: c.inkSoft, lineHeight: 1.5, marginBottom: 10 }}>Sign in to check in and save badges.</div>
+            <StickerBtn fill={c.sun} shadow={c.sunDeep} onClick={onGoogleSignIn} disabled={authBusy} style={{ width: "100%", color: c.ink, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+              <Icon name="trophy" size={16} /> {authBusy ? "Signing in…" : "Log in to earn a badge!"}
             </StickerBtn>
           </div>
         ) : checkedIn ? (
@@ -6278,10 +6792,12 @@
             <div style={{ fontSize: 12, color: c.inkSoft, marginBottom: 16 }}>Sent to you by a host</div>
 
             {!authUser ? (
+              // v2.13.7: same brightened treatment as PassportCheckIn's
+              // sign-in gate above.
               <div style={{ background: c.blue + "14", border: `2px solid ${c.blue}`, borderRadius: 14, padding: "12px 14px" }}>
-                <div style={{ fontSize: 12, color: c.inkSoft, lineHeight: 1.5, marginBottom: 10 }}>Sign in to complete your check-in.</div>
-                <StickerBtn fill={c.blue} shadow={c.blueDeep} small onClick={onGoogleSignIn} disabled={authBusy}>
-                  {authBusy ? "Signing in…" : "Sign in"}
+                <div style={{ fontSize: 12, color: c.inkSoft, lineHeight: 1.5, marginBottom: 10 }}>Sign in to check in and save badges.</div>
+                <StickerBtn fill={c.sun} shadow={c.sunDeep} onClick={onGoogleSignIn} disabled={authBusy} style={{ width: "100%", color: c.ink, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+                  <Icon name="trophy" size={16} /> {authBusy ? "Signing in…" : "Log in to earn a badge!"}
                 </StickerBtn>
                 {authError ? <div style={{ fontSize: 11, color: c.strawDeep, fontWeight: 600, marginTop: 8 }}>{authError}</div> : null}
               </div>
@@ -6775,7 +7291,7 @@
   // Bump this with every release so the live page always shows what's
   // actually deployed — no more guessing whether a paste went through,
   // or which version is live when reporting a field issue.
-  const APP_VERSION = "v2.13.6";
+  const APP_VERSION = "v2.14.0";
 
   function VersionFooter() {
     return (
