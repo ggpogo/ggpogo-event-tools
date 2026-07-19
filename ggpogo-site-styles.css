@@ -1,6 +1,6 @@
 /* ============================================================
    GGPoGo.com — Site-Wide Stylesheet
-   Version: 1.5.1
+   Version: 1.5.2
    Last updated: 2026-07-19
 
    FULL REPLACEMENT. Paste this entire file into
@@ -10,13 +10,20 @@
    Full historical changelog: see ggpogo-site-styles-CHANGELOG.md
    (companion file). This header lists only the latest version.
 
-   1.5.1 — Map page title shakedown. The Map page (page ID 319)
-           publishes with the same gg-page-header component as
-           Home/Events/Resources/etc, so its default Astra title
-           needed hiding the same way theirs already are. Added
-           .page-id-319 to Section 24's title-hiding list and
-           removed that section's now-stale "once the new Map
-           page is published" TODO note.
+   1.5.2 — Event Tools page weight reduction. Prompted by a concern
+           that /event-tools/ may be loading slowly on lower-spec
+           devices/connections. bg-wave.png (the gg-page-header
+           texture layer) was found to be 1.86MB despite rendering
+           at only 14% opacity. Event Tools now opts out of that
+           layer entirely via a new .page-id-149 override (Section
+           "PAGE HEADER" area) — other gg-page-header pages are
+           unaffected by this specific rule.
+
+           Separately (not a CSS change, needs manual upload): the
+           image itself was recompressed to a 9.3KB WebP for the
+           Media Library, which would benefit every gg-page-header
+           page once uploaded — see ggpogo-site-styles-CHANGELOG.md
+           for the full writeup and upload instructions.
 
    Stack: Astra theme + WordPress block editor
    Fonts: Fredoka (headings) · Nunito (body)
@@ -539,6 +546,14 @@ nav.site-navigation > div > ul {
 .gg-page-header .wp-block-cover__background,
 .gg-page-header .has-background-dim {
   display: none !important;
+}
+
+/* Event Tools (page-id 149) opts out of the bgwave texture entirely —
+   flagged as a possible contributor to slow loads on lower-spec
+   devices/connections. The gg-page-header gradient background above
+   still applies; only this decorative overlay layer is removed. */
+.page-id-149 .gg-page-header::before {
+  background-image: none !important;
 }
 
 .gg-page-header .wp-block-cover__inner-container {
