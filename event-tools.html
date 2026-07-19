@@ -1,20 +1,23 @@
 <!--
-  v2.14.2 — critical blank-page fix (broken by v2.14.1)
-  v2.14.1's My Activity map() rewrite converted an implicit-return arrow
-  function to a block body but left its OLD closing brackets in place,
-  producing a JS syntax error that Babel Standalone could not parse —
-  the entire app failed to render (blank page) when v2.14.1 was live.
-  Fixed by closing the return statement and function body correctly.
+  v2.14.3 — performance: deferred CDN scripts, font preconnect
+  Added defer to all 6 CDN <script> tags (React, ReactDOM, Babel
+  Standalone, Firebase x3) so the browser no longer blocks HTML
+  parsing while fetching each one in sequence, and preconnect hints
+  for the Google Fonts origins. No functional/rendering changes -
+  verified script execution order (React/ReactDOM/Firebase globals
+  all present before the app code runs) via a headless-browser test.
   Full history: ggpogo-event-tools-CHANGELOG.md
 -->
 <div id="ggpogo-event-tools-root" style="min-height: 100vh; width: 100%;"></div>
 
-<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-<script src="https://unpkg.com/@babel/standalone@7.29.7/babel.min.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-database-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-auth-compat.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js" defer></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" defer></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.7/babel.min.js" defer></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-app-compat.js" defer></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-database-compat.js" defer></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-auth-compat.js" defer></script>
 <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&display=swap" rel="stylesheet">
 
 <style>
@@ -7318,7 +7321,7 @@
   // Bump this with every release so the live page always shows what's
   // actually deployed — no more guessing whether a paste went through,
   // or which version is live when reporting a field issue.
-  const APP_VERSION = "v2.14.2";
+  const APP_VERSION = "v2.14.3";
 
   function VersionFooter() {
     return (

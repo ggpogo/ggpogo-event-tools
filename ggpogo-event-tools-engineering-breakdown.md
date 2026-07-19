@@ -281,3 +281,77 @@ Add a **10th check to `/predeliver`**, or a mandatory manual step called out in 
 - `ggpogo-event-tools-engineering-breakdown.md` — this section (new)
 
 **Status at end of session:** fix verified via Babel transform, ready to re-deliver. Eric needs to re-paste the corrected `event-tools.html` into the WordPress Custom HTML block (page ID 149) and confirm `APP_VERSION` shows `v2.14.2` on the live page after cache purge.
+
+---
+
+## Session: 2026-07-19 (same day) — performance investigation, prompted by a suspected slow-loading background image
+
+**Scope:** Eric suspected the Event Tools page's background image was slowing load times on lower-spec devices/connections and asked what else could be done. Investigated with real measurements rather than assumptions, found the actual biggest offender was something else entirely, and shipped v2.14.3 (Event Tools) + v1.5.2 (site-styles).
+
+---
+
+### 1. Measuring instead of guessing
+
+Rather than accept "the background image" as the only culprit, every asset the page actually loads was measured directly (`curl -s -o /dev/null -w "%{size_download}"` against each real URL):
+
+| Asset | Size |
+|---|---|
+| `@babel/standalone@7.29.7` (babel.min.js) | **3.07 MB** |
+| `bg-wave.png` (site-wide header texture) | 1.86 MB |
+| `firebase-database-compat.js` | 162 KB |
+| `firebase-auth-compat.js` | 136 KB |
+| `react-dom@18` production.min.js | 129 KB |
+| `firebase-app-compat.js` | 31 KB |
+| `react@18` production.min.js | 10.5 KB |
+
+**Babel Standalone, not the background image, is the single heaviest thing on the page** — 60% larger than `bg-wave.png`, and unlike a static image it also costs real CPU time: the browser has to parse and transpile the app's ~420KB of JSX in-thread before anything can render, which lands hardest on exactly the lower-spec devices Eric was worried about.
+
+Also tested (and rejected) migrating Firebase to its modular SDK as a possible quick win: fetched the modular build URLs directly (`firebase-app.js`, `firebase-database.js`, `firebase-auth.js` at the same CDN path) and found them **the same size or larger** than the compat builds already in use (e.g. modular `firebase-app.js` is 102KB vs. compat's 31KB) — tree-shaking only happens with an actual bundler, and loading modular builds via plain `<script>` tags gets none of that benefit. Not worth the migration churn.
+
+### 2. Decisions, via `AskUserQuestion`
+
+Presented three decisions rather than picking for Eric:
+1. **bg-wave scope:** recompress site-wide vs. remove only from Event Tools vs. both → **chose both**.
+2. **Low-risk quick wins** (defer + preconnect) → **yes, do now**.
+3. **Pre-compile JSX to drop Babel Standalone entirely** (the biggest lever, but a real architecture change — conflicts with `CLAUDE.md`'s deliberate "no build pipeline" stance) → **not now**, flagged for a future session.
+
+### 3. bg-wave.png recompression
+
+Downloaded the live image directly, inspected it with `sharp` (Node): 1024×1536 PNG, no alpha, and — critically — a flat-color wavy-gradient graphic, not a photo. That's exactly the kind of image lossy WebP compresses extremely well. Generated several quality levels:
+
+| Format | Size | Reduction |
+|---|---|---|
+| Original PNG | 1.86 MB | — |
+| Optimized PNG (palette, sharp) | 199 KB | 89.5% |
+| WebP q50 | 7.2 KB | 99.6% |
+| WebP q65 | 8.3 KB | 99.6% |
+| **WebP q75 (chosen)** | **9.3 KB** | **99.5%** |
+| WebP q80 | 11.4 KB | 99.4% |
+
+Rendered downscaled previews of the original vs. the q75 WebP side by side and visually confirmed no perceptible difference — expected, since the image is only ever shown at 14% opacity with `mix-blend-mode: overlay`.
+
+**Delivered, not yet live:** I can't upload to the WordPress Media Library directly, so both the WebP (`delivery-assets/bg-wave.webp`, recommended) and the palette PNG (`delivery-assets/bg-wave-optimized.png`, alternative if Eric prefers to keep the exact same file path/URL by overwriting the file in place rather than uploading a new one) were placed in the project working directory (untracked — these are one-off delivery assets for a different system, not repo source of truth, so not committed to git). Eric needs to upload one and either update the CSS `url()` (if the path changes) or simply overwrite the existing file at the same path (if keeping `bg-wave.png`/same URL — no CSS change needed in that case).
+
+**Separately, CSS change (shipped this session):** added `.page-id-149 .gg-page-header::before { background-image: none !important; }` to `ggpogo-site-styles.css` so Event Tools drops the texture layer entirely, independent of whatever happens with the site-wide image swap. Bumped to v1.5.2, in-file header + companion CHANGELOG updated.
+
+### 4. `defer` + preconnect — tested before shipping, not assumed
+
+Given this session already had one blank-page incident from an unverified assumption (the v2.14.1→v2.14.2 bracket-matching bug), `defer` wasn't just added and hoped for the best. The app's whole architecture depends on script execution order: React, ReactDOM, and all three Firebase globals must exist before the `<script type="text/babel">` app code runs.
+
+Built a minimal reproduction of the real script tag order (all 6 CDN scripts with `defer` added) plus a stub `text/babel` block that checks `typeof React/ReactDOM/firebase` and renders the result, then ran it in a real headless Chromium via Puppeteer (installed fresh into the scratchpad directory, not the project). Result: `ALL-GLOBALS-OK` — confirmed `defer` preserves the needed execution order (deferred scripts execute in document order, after parsing, before `DOMContentLoaded`; Babel Standalone's own DOM scan for `text/babel` tags happens on/after that same point).
+
+Shipped: `defer` on all 6 CDN `<script>` tags, plus `<link rel="preconnect">` for `fonts.googleapis.com`/`fonts.gstatic.com`. Bumped Event Tools to v2.14.3. Re-ran the full `/predeliver` checklist (all 9 checks clean) and, per the lesson from the v2.14.2 incident, re-verified the script block still parses cleanly via a local Babel transform even though this change didn't touch JSX/control flow directly.
+
+### 5. What's still open
+
+- **Eric needs to upload the compressed bg-wave asset** and either repoint the CSS `url()` or overwrite the file in place — the biggest remaining win (1.86MB → ~9KB, site-wide) isn't live until that manual step happens.
+- **Babel Standalone pre-compilation** (the single largest lever, ~3MB + transpile CPU cost) was explicitly deferred, not rejected — worth a dedicated session if Eric wants to pursue it, since it changes the delivery workflow (I'd compile JSX to plain JS before every future handoff) and needs a scoped proposal first per `CLAUDE.md`'s "scope before code" convention.
+
+### 6. File manifest (this session)
+
+- `event-tools.html` — `APP_VERSION` v2.14.2 → v2.14.3; `defer` on 6 CDN scripts; font preconnect hints; in-file changelog header rewritten
+- `ggpogo-event-tools-CHANGELOG.md` — v2.14.3 entry appended
+- `ggpogo-site-styles.css` — `Version: 1.5.1` → `1.5.2`; `.page-id-149` bg-wave override added; in-file header rewritten
+- `ggpogo-site-styles-CHANGELOG.md` — 1.5.2 entry appended
+- `delivery-assets/bg-wave.webp`, `delivery-assets/bg-wave-optimized.png` — untracked, for Eric to upload
+- `ggpogo-event-tools-engineering-breakdown.md` — this section (new)
