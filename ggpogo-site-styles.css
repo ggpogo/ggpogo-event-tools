@@ -1,6 +1,6 @@
 /* ============================================================
    GGPoGo.com — Site-Wide Stylesheet
-   Version: 1.5.2
+   Version: 1.5.3
    Last updated: 2026-07-19
 
    FULL REPLACEMENT. Paste this entire file into
@@ -10,20 +10,20 @@
    Full historical changelog: see ggpogo-site-styles-CHANGELOG.md
    (companion file). This header lists only the latest version.
 
-   1.5.2 — Event Tools page weight reduction. Prompted by a concern
-           that /event-tools/ may be loading slowly on lower-spec
-           devices/connections. bg-wave.png (the gg-page-header
-           texture layer) was found to be 1.86MB despite rendering
-           at only 14% opacity. Event Tools now opts out of that
-           layer entirely via a new .page-id-149 override (Section
-           "PAGE HEADER" area) — other gg-page-header pages are
-           unaffected by this specific rule.
-
-           Separately (not a CSS change, needs manual upload): the
-           image itself was recompressed to a 9.3KB WebP for the
-           Media Library, which would benefit every gg-page-header
-           page once uploaded — see ggpogo-site-styles-CHANGELOG.md
-           for the full writeup and upload instructions.
+   1.5.3 — bg-wave.png repointed at the recompressed upload. Eric
+           uploaded the optimized image via the Media Library,
+           which (as always) gave it a new URL rather than
+           overwriting the old one in place. Section 24's
+           .gg-page-header::before rule now points at
+           /uploads/2026/07/bg-wave.png (199KB) instead of
+           /uploads/2026/04/bg-wave.png (1.86MB) — confirmed the
+           new file resolves and is the expected size before
+           making this change. Benefits every gg-page-header page
+           (Home, Events, Resources, Map) except Event Tools, which
+           already opts out of this layer entirely as of 1.5.2. No
+           visual change expected — same image content, smaller
+           file, and the effect was already imperceptible at 14%
+           opacity before this change (see engineering breakdown).
 
    Stack: Astra theme + WordPress block editor
    Fonts: Fredoka (headings) · Nunito (body)
@@ -528,7 +528,7 @@ nav.site-navigation > div > ul {
   content: '' !important;
   position: absolute !important;
   inset: 0 !important;
-  background-image: url('https://ggpogo.com/wp-content/uploads/2026/04/bg-wave.png') !important;
+  background-image: url('https://ggpogo.com/wp-content/uploads/2026/07/bg-wave.png') !important;
   background-size: cover !important;
   background-position: center !important;
   background-repeat: no-repeat !important;

@@ -403,3 +403,35 @@ Rather than take "no visible difference" as ambiguous, pulled the actual live pa
 
 - No files changed — investigation and clarification only.
 - `ggpogo-event-tools-engineering-breakdown.md` — this section (new)
+
+---
+
+## Session: 2026-07-19 (same day) — closing out both open items from the last two sessions
+
+**Scope:** Eric resolved both outstanding items from the background-image investigation above: cleared the live `settings:branding.bgImage` value via the app's own Branding screen, and uploaded the recompressed `bg-wave.png`. This session located the Branding screen for him and repointed the CSS at the new upload.
+
+---
+
+### 1. Finding the Branding screen
+
+Eric couldn't find the host-only Branding screen. Traced the actual navigation path through the code rather than guessing: `Home` (~line 1079) renders `EventDayDashboard` when `isHost` is true; that dashboard has a "Quick links" grid (~line 1320) with a 🎨-icon tile whose `onClick` calls `setView("branding")` (~line 1321), which `App()` gates behind `isHost` (~line 7538) before rendering `BrandingSettings`. So: sign in as a recognized host → Home dashboard → "Quick links" row → 🎨 Branding tile → "Background image URL (optional)" field → clear → Save. Eric found it and cleared the field — `settings:branding.bgImage` should now be back to the `""` default, so the app falls back to the solid `grassMid` background on every screen.
+
+### 2. bg-wave.png: uploaded, new URL, CSS repointed
+
+Eric uploaded `bg-wave-optimized.png` through the normal Media Library flow, which — as expected, since WordPress doesn't overwrite same-named files that way — gave it a new URL: `/wp-content/uploads/2026/07/bg-wave.png`, rather than replacing the original `/uploads/2026/04/bg-wave.png` in place. Fetched the new URL directly before touching any code: **200, 199,178 bytes**, exactly matching the optimized PNG generated in the earlier session — confirmed it's the right file before repointing anything.
+
+Updated `ggpogo-site-styles.css`'s `.gg-page-header::before` rule to the new URL, bumped to **v1.5.3**, rewrote the in-file header, and appended the v1.5.3 entry to `ggpogo-site-styles-CHANGELOG.md`. Noted there (not actioned): the original 1.86MB file at the `/2026/04/` path is now orphaned — nothing in the codebase references it anymore, but deleting Media Library files is Eric's call.
+
+**Expected result once deployed:** no visible change on any page (same image content, smaller file; the effect was already imperceptible at 14% opacity per the prior session's live screenshot test) — the win is purely the ~1.66MB removed from every `gg-page-header` page load except Event Tools (which already dropped this layer entirely in v1.5.2).
+
+### 3. Where things stand now
+
+- **`settings:branding.bgImage`:** cleared. The code-removal option (stripping the capability entirely so it can't be set again) was raised earlier but not decided — still open if Eric wants to revisit it.
+- **`bg-wave.png`:** recompressed version is live at a new URL, CSS repointed, v1.5.3 committed — **needs Eric to paste the updated `ggpogo-site-styles.css` into Additional CSS** to actually take effect (same deploy-gap pattern as v1.5.2 initially).
+- **Babel Standalone pre-compilation:** still the largest remaining lever (~3MB + transpile cost), still explicitly deferred from the original performance session — not raised again this session.
+
+### 4. File manifest (this session)
+
+- `ggpogo-site-styles.css` — `Version: 1.5.2` → `1.5.3`; `bg-wave.png` URL repointed to the `/2026/07/` upload; in-file header rewritten
+- `ggpogo-site-styles-CHANGELOG.md` — 1.5.3 entry appended
+- `ggpogo-event-tools-engineering-breakdown.md` — this section (new)
