@@ -184,3 +184,100 @@ Status at end of session: **READY FOR DELIVERY**, file uncommitted at repo root 
 - `e4f8db4` — Exclude JS comments from predeliver check 2's raw @ scan
 
 **Not yet committed:** the v2.14.1 `event-tools.html` fixes, the CHANGELOG entry, and this breakdown doc — pending Eric's go-ahead.
+
+*(Everything above was in fact committed and pushed shortly after this was written, across three commits: `fd41b14` CLAUDE.md conventions, `90d79e9` the v2.14.1 release, `b4bc927` the site-styles v1.5.1 release, followed by `0edb5cd` backfilling the v1.5.0 changelog entry. See the next session below for what happened when v2.14.1 actually went live.)*
+
+---
+
+## Session: 2026-07-19 (same day) — v2.14.2 hotfix: v2.14.1 broke the live page
+
+**Scope:** Eric deployed v2.14.1 to WordPress; the live page went blank. Root-caused, fixed, verified with an actual Babel parse (not just grep), and shipped v2.14.2.
+
+**Companion docs:** `ggpogo-event-tools-CHANGELOG.md` (v2.14.2 entry), this file's own v2.14.1 section above (section 5a describes the change that introduced the bug).
+
+---
+
+### 1. What happened
+
+v2.14.1 (committed `90d79e9`, described above) passed all 9 `/predeliver` checks and was reported "READY FOR DELIVERY." Eric pasted it into the WordPress Custom HTML block. The live page rendered completely blank — no error, no partial UI, nothing.
+
+### 2. Root cause
+
+Section 5a of the v2.14.1 write-up above describes converting the My Activity list's `group.items.map((item, i) => (...))` callback from an **implicit-return** arrow function (parens, no braces) to a **block-bodied** one, so that two intermediate variables (`isClaimedGiveaway`, `isPickedNotClaimed`) could be computed ahead of the JSX:
+
+```js
+// before (v2.14.0, implicit return):
+{group.items.map((item, i) => (
+  <div key={item.id} ...>
+    ...
+  </div>
+))}
+
+// after (v2.14.1, intended):
+{group.items.map((item, i) => {
+  let isClaimedGiveaway = false;
+  ...
+  return (
+    <div key={item.id} ...>
+      ...
+    </div>
+  );
+})}
+```
+
+The **opening** of the callback was correctly changed (`=> (` → `=> {`, plus the added `return (`). The **closing** was not — it was left as the original `))}` (one `)` to close the JSX parens, one `)` to close `.map(`, one `}` to close the outer JSX expression container). That closing shape is only valid for the old implicit-return version. The new block-bodied version needed `);` (close the `return (...)`) then `}` (close the arrow function's block body) then `)` then `}` — one more closing brace than before.
+
+The result was a genuine JS syntax error sitting inside the `<script type="text/babel">` block. Babel Standalone failed to parse the entire script — not just that one component — so **nothing in the app rendered**, matching the blank-page failure signature already documented for the v2.10.0 incident (unpinned Babel CDN) in `ggpogo-event-tools-CHANGELOG.md`. No console-visible React error, no partial UI: a parse failure at the top level takes the whole IIFE down before any component ever mounts.
+
+### 3. Why `/predeliver` didn't catch it
+
+All 9 of `/predeliver`'s checks (`.claude/skills/predeliver/SKILL.md`) are **regex/grep-based pattern matches against known failure modes** — raw `&&`, raw `@`, `confirm()`, `APP_VERSION` presence, the Babel pin, `data-presets`, the pragma, a URL-construction heuristic, and `signInWithRedirect`. **None of them parse the file as JavaScript.** A structural mistake like a mismatched brace is invisible to every one of those checks — the skill reported a clean bill of health while shipping a file that couldn't execute at all. This is a real gap distinct from the sanitizer-specific traps the skill was built to catch.
+
+### 4. The fix, and how it was verified this time
+
+Fixed by closing the callback correctly:
+```js
+    </div>
+    );
+  })}
+```
+(one `);` to close the `return`, one `}` to close the arrow function body, matching the existing `)}` that closes `.map(` and the outer JSX container.)
+
+**Verification approach — actually run it through Babel, not just eyeball it:**
+```bash
+node -e "
+  const fs = require('fs');
+  const content = fs.readFileSync('event-tools.html', 'utf8');
+  const match = content.match(/<script type=\"text\/babel\"[^>]*>([\s\S]*?)<\/script>/);
+  fs.writeFileSync('scratch_script.js', match[1]);
+"
+# then, in a scratch dir with @babel/core + @babel/preset-react installed:
+node -e "
+  const babel = require('@babel/core');
+  const code = require('fs').readFileSync('scratch_script.js', 'utf8');
+  const result = babel.transformSync(code, {
+    presets: [['@babel/preset-react', { runtime: 'classic' }]],
+    filename: 'script.jsx',
+  });
+  console.log('OK', result.code.length);
+"
+```
+This caught the exact `Missing semicolon` error at the broken `))}` before the fix, and confirmed a clean transform after. `CLAUDE.md` already carries a caveat that local `@babel/core` can't catch **CDN version drift** — but that caveat is about a different failure mode (an unpinned/different Babel version silently changing behavior). It says nothing about catching plain syntax errors, which local Babel is perfectly capable of doing and which `/predeliver` currently never attempts.
+
+### 5. Version and changelog
+
+- `APP_VERSION` bumped `v2.14.1` → `v2.14.2`
+- In-file changelog header rewritten (not "additive" — per convention it always shows only the current version) to describe the blank-page bug and its fix
+- `ggpogo-event-tools-CHANGELOG.md` v2.14.2 entry added, including the same process-gap note as here
+
+### 6. Recommendation (not yet actioned — flagged for Eric)
+
+Add a **10th check to `/predeliver`**, or a mandatory manual step called out in its instructions: actually attempt a local Babel transform of the extracted `<script type="text/babel">` contents (React preset, classic runtime) and hard-fail if it throws. This wouldn't replace the existing 9 checks (which catch WordPress-sanitizer-specific corruption that only manifests in the *live, pasted* HTML — a local parse can't detect that) — it would catch the *other* class of failure: a plain structural JS/JSX mistake that breaks parsing regardless of where the file is pasted. Recommend requiring this specifically whenever a delivery touches control flow, function signatures, or JSX structure (not needed for pure string/text-only edits). Not implemented yet this session — needs Eric's go-ahead since it changes the skill again and adds a Node/Babel dependency to the delivery process.
+
+### 7. File manifest (this session)
+
+- `event-tools.html` — `APP_VERSION` v2.14.1 → v2.14.2; fixed the My Activity map() closing-bracket mismatch; rewrote in-file changelog header
+- `ggpogo-event-tools-CHANGELOG.md` — v2.14.2 entry appended
+- `ggpogo-event-tools-engineering-breakdown.md` — this section (new)
+
+**Status at end of session:** fix verified via Babel transform, ready to re-deliver. Eric needs to re-paste the corrected `event-tools.html` into the WordPress Custom HTML block (page ID 149) and confirm `APP_VERSION` shows `v2.14.2` on the live page after cache purge.

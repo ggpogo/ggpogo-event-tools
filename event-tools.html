@@ -1,9 +1,11 @@
 <!--
-  v2.14.1 — pre-delivery sanitizer fixes
-  Rewrote 4 raw double-ampersand occurrences (My Activity item labels, DrawingInfoAlert,
-  reroll's outgoing-entrant patch) as nested `if`/intermediate variables, and
-  encoded 3 raw `@` occurrences (My Activity item labels, buildAnnouncement)
-  as the "\u0040" escape. No functional changes. Full history: ggpogo-event-tools-CHANGELOG.md
+  v2.14.2 — critical blank-page fix (broken by v2.14.1)
+  v2.14.1's My Activity map() rewrite converted an implicit-return arrow
+  function to a block body but left its OLD closing brackets in place,
+  producing a JS syntax error that Babel Standalone could not parse —
+  the entire app failed to render (blank page) when v2.14.1 was live.
+  Fixed by closing the return statement and function body correctly.
+  Full history: ggpogo-event-tools-CHANGELOG.md
 -->
 <div id="ggpogo-event-tools-root" style="min-height: 100vh; width: 100%;"></div>
 
@@ -1627,7 +1629,8 @@
                         </div>
                       </div>
                     </div>
-                  ))}
+                    );
+                  })}
                 </Paper>
               </div>
             ))}
@@ -7315,7 +7318,7 @@
   // Bump this with every release so the live page always shows what's
   // actually deployed — no more guessing whether a paste went through,
   // or which version is live when reporting a field issue.
-  const APP_VERSION = "v2.14.1";
+  const APP_VERSION = "v2.14.2";
 
   function VersionFooter() {
     return (

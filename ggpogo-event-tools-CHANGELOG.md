@@ -189,3 +189,10 @@ The `/predeliver` skill flagged 4 raw `&&` and 3 raw `@` occurrences introduced 
 - `buildAnnouncement`'s "@name you won X!" template literal: encoded the leading raw `@` as the `\u0040` escape.
 
 Also established an in-file changelog header (HTML comment at the top of the delivered file) summarizing only the current version's changes, per the project's delivery-format convention — this is the first delivery to carry one.
+
+### v2.14.2 — critical fix: v2.14.1 broke the live page (blank screen)
+v2.14.1's My Activity item rewrite converted the `group.items.map((item, i) => (...))` callback from an implicit-return arrow function to a block body (`=> { ...; return (...); }`) so the new `isClaimedGiveaway`/`isPickedNotClaimed` variables could be computed ahead of the JSX — but the callback's closing `))}` was never updated to match the new shape (it needed `);\n})}` instead). That left a genuine JS syntax error in the delivered file: Babel Standalone couldn't parse the script block, so the entire app failed silently and the live page rendered blank after v2.14.1 was pasted in.
+
+Fixed by closing the `return (...)` and the arrow function body correctly. Verified this time by actually running the delivered script block through a local Babel transform (`@babel/preset-react`, classic runtime) rather than relying solely on `/predeliver`'s grep-based checks, which caught the sanitizer traps in v2.14.1 but have no way to catch a plain syntax error like this one.
+
+**Process gap identified:** none of `/predeliver`'s 9 checks verify the file actually parses — they're all pattern-matching against known WordPress-sanitizer/Babel-CDN failure modes, not general JS/JSX validity. A local Babel transform sanity-check (accepting the known caveat that it can't catch CDN version drift, per `CLAUDE.md`) should be added as a mandatory step whenever a delivery involves structural code changes (not just cosmetic/text edits).
