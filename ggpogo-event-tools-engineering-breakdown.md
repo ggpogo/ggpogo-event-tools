@@ -355,3 +355,51 @@ Shipped: `defer` on all 6 CDN `<script>` tags, plus `<link rel="preconnect">` fo
 - `ggpogo-site-styles-CHANGELOG.md` — 1.5.2 entry appended
 - `delivery-assets/bg-wave.webp`, `delivery-assets/bg-wave-optimized.png` — untracked, for Eric to upload
 - `ggpogo-event-tools-engineering-breakdown.md` — this section (new)
+
+---
+
+## Session: 2026-07-19 (same day) — clearing up confusion between three separate "background" things, and finding a second image
+
+**Scope:** Eric deployed v2.14.3 (`event-tools.html`) but not v1.5.2 (`ggpogo-site-styles.css`), saw no visible change, and — separately — noticed the app itself has a different, much more visible background image than `bg-wave.png`. This session tracked down that second image, then investigated Eric's report that he'd "never seen bg-wave anywhere" to confirm whether anything was actually broken. No code shipped this session; investigation only.
+
+---
+
+### 1. A second background image: `settings:branding.bgImage`
+
+Eric inspected the live app in DevTools and found:
+```css
+background: url(http://ggpogo.com/wp-content/uploads/2026/05/superRes-scaled.png) center center / cover no-repeat;
+```
+This is a completely different mechanism from `bg-wave.png` — not a static CSS asset at all. `event-tools.html` has a host-only "Branding" settings screen (`BrandingSettings`, ~line 4066) where a host can paste a custom background-image URL, saved to Firebase RTDB at `settings:branding.bgImage`. `useBrand()` (~line 922) watches that path and merges it over `DEFAULT_BRAND` (where `bgImage` defaults to `""`, ~line 915). The `App()` root component (~line 7466) then applies it as the page background across **every screen of the app**:
+```js
+background: c.bgImage ? (!bgFailed ? `url(${c.bgImage}) center/cover no-repeat` : c.grassMid) : c.grassMid,
+```
+Fetched the URL directly to confirm it's real and to quantify it: **1.07MB PNG**, loaded on every screen. Since this value lives in the database, not in any file in this repo, there was no way to have found it by reading the codebase alone — it had to be reported from the live DOM first, then matched back to the code path that produces it. Confirmed for Eric that the DevTools-reported `center center / cover no-repeat` and the code's `center/cover no-repeat` are the same rule (browsers expand shorthand to longhand in the inspector).
+
+**Not yet resolved** — two options on the table, Eric hasn't chosen yet:
+1. Clear the live value via the app's own Branding screen (instant, no deployment, fully reversible) — the only option I can't do myself, since it requires being signed in as a host in the live app.
+2. Additionally strip the `bgImage`/`logoImage` customization capability out of the code entirely, so it can't be set again — a real product decision, not just a performance fix.
+
+### 2. "I never saw bg-wave anywhere" — checked live, nothing is actually broken
+
+Rather than take "no visible difference" as ambiguous, pulled the actual live page and CSS to check three possibilities: (a) the v1.5.2 fix wasn't deployed, (b) the original effect was always imperceptible, or (c) something is genuinely broken.
+
+**Fetched the live `/event-tools/` page HTML and extracted the actual deployed `<style id="wp-custom-css">` block** (WordPress inlines Customizer "Additional CSS" into the page under that id — found by listing all inline `<style>` ids on the page, not guessed): it still carries `Version: 1.5.1` in its header comment, and its `.gg-page-header::before` rule still points at `bg-wave.png` with no `.page-id-149` override present anywhere in it. **Confirmed: only `event-tools.html` was redeployed; `ggpogo-site-styles.css` v1.5.2 was never pasted into WordPress.** That fully explains "no visible difference" for the CSS side on its own.
+
+**But also checked whether the original effect was ever visible in the first place**, independent of the above, using a headless-browser inspection (Puppeteer) of the actual live page:
+- `bg-wave.png` request returns **200**, no failed requests, no CORS/load errors.
+- The `::before` pseudo-element's computed styles are exactly as coded: correct box (1160×200px, matching the header), `position: absolute`, `background-image` correctly resolved to the real URL, `opacity: 0.14`, `mix-blend-mode: overlay`, `z-index: 0`.
+- Screenshotted the live header element directly: a **completely smooth, flat gradient — no visible wave texture at all.**
+
+**Conclusion given to Eric:** nothing is broken. The rule renders exactly as written; it's just that 14% opacity blended with `overlay` mode, on an image whose colors are close in hue to the gradient it's laid over, produces an effect that's mathematically almost zero at typical viewing conditions — not a bug, just a design that landed at "invisible" rather than "subtle." This also means removing it (once actually deployed) will show **zero visual difference**, which is the *expected*, correct outcome — the win was always going to be network-only (1.86MB off every page load), never visual.
+
+### 3. Where things stand
+
+- **`bg-wave.png` (WordPress site-wide texture):** code fix committed (`624670c`, v1.5.2) but **not deployed** — Eric still needs to paste the updated `ggpogo-site-styles.css` into Additional CSS. The compressed replacement image (`delivery-assets/bg-wave.webp`) is also still pending upload/URL swap.
+- **`settings:branding.bgImage` (in-app custom background, `superRes-scaled.png`):** identified and quantified (1.07MB), **not yet touched** — awaiting Eric's choice between clearing the live value vs. also removing the code capability.
+- **`event-tools.html` v2.14.3 (defer/preconnect):** deployed successfully; the lack of visible change here was expected and correct (performance-only change, no rendering difference by design).
+
+### 4. File manifest (this session)
+
+- No files changed — investigation and clarification only.
+- `ggpogo-event-tools-engineering-breakdown.md` — this section (new)
