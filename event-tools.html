@@ -1,11 +1,15 @@
 <!--
-  v2.14.3 — performance: deferred CDN scripts, font preconnect
-  Added defer to all 6 CDN <script> tags (React, ReactDOM, Babel
-  Standalone, Firebase x3) so the browser no longer blocks HTML
-  parsing while fetching each one in sequence, and preconnect hints
-  for the Google Fonts origins. No functional/rendering changes -
-  verified script execution order (React/ReactDOM/Firebase globals
-  all present before the app code runs) via a headless-browser test.
+  v2.14.4 — sign-in button copy: claim/entry-specific instead of badge language
+  The Code Drop/Giveaway QR sign-in card (OptionalProfileSignInCard,
+  both compact and full variants) no longer says "Log in to earn a
+  badge!" — that's Passport-page language, meaningless to someone who
+  just scanned a claim/entry QR code with no Passport context. Button
+  text is now derived from the existing `flow` prop: "Sign in to save
+  this claim" (Code Drop) or "Sign in to save this entry" (Giveaway).
+  Passport check-in gates keep the badge copy, since that audience is
+  already on the Passport surface. Also reworded the guest-mode banner
+  link to name the benefit ("...to save your history and badges").
+  No functional/logic changes beyond the new signInLabel derivation.
   Full history: ggpogo-event-tools-CHANGELOG.md
 -->
 <div id="ggpogo-event-tools-root" style="min-height: 100vh; width: 100%;"></div>
@@ -1475,7 +1479,7 @@
         <div style={{ flex: 1 }}>
           <div style={{ fontSize: 12, fontWeight: 700, color: c.ink, marginBottom: 2 }}>Guest mode</div>
           <div style={{ fontSize: 11, color: c.inkSoft, lineHeight: 1.4 }}>
-            Your meetup history and passport progress won't be saved. <span onClick={onSignIn} style={{ color: c.blue, fontWeight: 700, cursor: "pointer", textDecoration: "underline" }}>Sign in with Google</span> anytime to start tracking.
+            Your meetup history and passport progress won't be saved. <span onClick={onSignIn} style={{ color: c.blue, fontWeight: 700, cursor: "pointer", textDecoration: "underline" }}>Sign in with Google</span> to save your history and badges.
           </div>
         </div>
         <button onClick={() => { setDismissed(true); dismissGuestBanner(); }} style={{
@@ -1697,6 +1701,12 @@
     const isSignedIn = !!authUser;
     const isChecking = authUser === undefined;
     const flowLabel = flow === "code" ? "code claim" : "giveaway entry";
+    // v2.14.4: button copy is claim/entry-specific instead of generic
+    // badge language — a stranger scanning a Code Drop/Giveaway QR has
+    // no context for "badge" (that's a Passport-page concept), but
+    // understands what they just did (claimed a code / entered a
+    // giveaway) and can see the benefit of saving that.
+    const signInLabel = flow === "code" ? "Sign in to save this claim" : "Sign in to save this entry";
     const signedInName = authUser ? (authUser.displayName || "Trainer") : "";
 
     // Compact variant (v2.12.23): used on the simplified claim page where
@@ -1732,7 +1742,7 @@
             <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
           </svg>
           <Icon name="trophy" size={16} />
-          {authBusy ? "Signing in…" : "Log in to earn a badge!"}
+          {authBusy ? "Signing in…" : signInLabel}
         </StickerBtn>
       );
     }
@@ -1761,8 +1771,11 @@
     }
 
     // v2.13.7: trimmed from two sentences to one — the button copy itself
-    // ("Log in to earn a badge!") now carries the value proposition, so
-    // this line only needs to say guests can still continue.
+    // now carries the value proposition, so this line only needs to say
+    // guests can still continue. v2.14.4: button copy changed from
+    // generic badge language to claim/entry-specific text (see
+    // signInLabel above) since this card's audience is Code Drop /
+    // Giveaway QR scanners, not Passport users.
     return (
       <div style={{ background: c.blue + "14", border: `2px solid ${c.blue}`, borderRadius: 14, padding: "12px 14px", marginBottom: 14, textAlign: "left" }}>
         <div style={{ fontSize: 13, fontWeight: 700, color: c.ink, marginBottom: 4 }}>Save your progress</div>
@@ -1779,7 +1792,7 @@
               <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18A10.96 10.96 0 0 0 1 12c0 1.78.43 3.47 1.18 4.93l3.66-2.84z"/>
               <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
             </svg>
-            <Icon name="trophy" size={16} /> {authBusy ? "Signing in…" : "Log in to earn a badge!"}
+            <Icon name="trophy" size={16} /> {authBusy ? "Signing in…" : signInLabel}
           </StickerBtn>
         )}
         {authError ? <div style={{ color: c.strawberry, fontSize: 11, fontWeight: 700, marginTop: 8, textAlign: "center" }}>{authError}</div> : null}
@@ -7321,7 +7334,7 @@
   // Bump this with every release so the live page always shows what's
   // actually deployed — no more guessing whether a paste went through,
   // or which version is live when reporting a field issue.
-  const APP_VERSION = "v2.14.3";
+  const APP_VERSION = "v2.14.4";
 
   function VersionFooter() {
     return (
