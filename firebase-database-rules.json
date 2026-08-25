@@ -76,6 +76,18 @@
       ".read": true,
       ".write": "auth != null"
     },
+    "settings:calendarSync": {
+      ".read": true,
+      ".write": "auth != null"
+    },
+    "calendarSync:lastRun": {
+      ".read": "auth != null",
+      ".write": true
+    },
+    "calendarSync:runs": {
+      ".read": "auth != null",
+      ".write": true
+    },
     "pp:session": {
       ".read": "auth != null",
       ".write": "auth != null"
