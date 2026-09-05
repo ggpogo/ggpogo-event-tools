@@ -25,28 +25,34 @@ Mixed workspace for two interconnected projects:
 
 1. `git status` and `git log --oneline -5` — orient to current state
 2. Skim this file
-3. For Event Tools work: consult `ggpogo-engineering-reference.md`
-4. For website work: consult `ggpogo-website-handoff.md`
+3. For Event Tools work: consult `event-tools/ggpogo-engineering-reference.md`
+4. For website work: consult `website/ggpogo-website-handoff.md`
 5. For historical detail on any file: check its `*-CHANGELOG.md`
 
 ---
 
 ## Repository layout
 
-**Canonical files at root** — one non-versioned name per artifact. Always edit these.
+As of 2026-09, root files are organized into per-project folders instead of sitting loose at repo root. Each canonical file is still a single non-versioned name — always edit these directly.
 
 | File | Purpose |
 |---|---|
-| `event-tools.html` | Current Event Tools app |
-| `ggpogo-site-styles.css` | Site-wide stylesheet |
-| `events-sections.html` | Events page Custom HTML block |
-| `ggpogo-map-page.html` | Map page Custom HTML block |
-| `firebase-database-rules.json` | Firebase RTDB rules |
-| `ggpogo-engineering-reference.md` | Event Tools authoritative reference |
-| `ggpogo-website-handoff.md` | Website state + open items |
-| `ggpogo-event-tools-CHANGELOG.md` | Full Event Tools history |
-| `ggpogo-site-styles-CHANGELOG.md` | Full stylesheet history |
-| `commit.bat` | Version tagging + push automation |
+| `event-tools/event-tools.html` | Current Event Tools app |
+| `event-tools/ggpogo-engineering-reference.md` | Event Tools authoritative reference |
+| `event-tools/ggpogo-event-tools-CHANGELOG.md` | Full Event Tools history |
+| `event-tools/ggpogo-event-tools-engineering-breakdown.md` | Event Tools session-level engineering log |
+| `event-tools/firebase-database-rules.json` | Firebase RTDB rules |
+| `event-tools/roles-import.json` | One-off Firebase roles import payload |
+| `website/events-sections.html` | Events page Custom HTML block |
+| `website/ggpogo-map-page.html` | Map page Custom HTML block |
+| `website/ggpogo-map-page-engineering-breakdown.md` | Map page engineering breakdown |
+| `website/ggpogo-website-handoff.md` | Website state + open items |
+| `website/ggpogo-brand-guide.html` | Brand/style reference doc |
+| `workers/campfire-cors-proxy-worker.js` | Campfire Tools CORS proxy + scheduled stats refresh (Cloudflare Worker) |
+| `workers/ggpogo-calendar-sync-worker.js` | Calendar Sync Cloudflare Worker |
+| `commit.bat` | Version tagging + push automation (root — run from repo root) |
+
+**`ggpogo-site-styles.css` and `ggpogo-site-styles-CHANGELOG.md` are no longer in this repo.** The site-wide stylesheet migrated to the separate `ggpogo-website` repo (`deliverables/ggpogo-site-styles.css`, `docs/CHANGELOG.md`) as part of the 3a redesign — see that repo's handoff doc. Don't recreate these files here.
 
 **`archive/` subdirectories** — every prior versioned build. Read-only in practice; never edit archived files, never resurrect one at root.
 
@@ -55,7 +61,7 @@ archive/
 ├── engineering-reference/
 ├── events-sections/
 ├── firebase-rules/
-├── homepage-b/           (deprecated experiments)
+├── homepage-b/           (deprecated experiments — includes the abandoned v1 root copy)
 ├── site-styles/
 ├── website-handoff/
 └── wordpress-block/
@@ -117,7 +123,7 @@ Local `@babel/core` verification does not catch CDN version drift — the pin is
 ## WordPress deploy sequences
 
 ### CSS
-1. Copy full `ggpogo-site-styles.css`
+1. Copy full `ggpogo-site-styles.css` from the `ggpogo-website` repo (`deliverables/ggpogo-site-styles.css` — no longer in this repo)
 2. WP → Appearance → Customize → Additional CSS → paste (replace all)
 3. Publish
 4. SiteGround → "Purge SG Cache"
@@ -125,7 +131,7 @@ Local `@babel/core` verification does not catch CDN version drift — the pin is
 6. Hard reload in incognito
 
 ### Event Tools
-1. Copy full `event-tools.html`
+1. Copy full `event-tools/event-tools.html`
 2. Edit page id 149 → Custom HTML block → paste (replace all)
 3. Update
 4. Purge caches (same as CSS)
@@ -160,7 +166,7 @@ Identity paths use plain hierarchy (no colon):
 
 Host-only paths (`cd:history`, `gw:history`, `gw:draws`, `stats:*`, `gw:templates`) currently use `auth != null` — any signed-in user could read/write them at the rule layer. Acceptable now because they're only referenced from host-only UI components non-hosts never see. Tightening to check the host role in the rules is on the backlog.
 
-Full path detail, per-item shapes, and the write-constraint expressions live in `ggpogo-engineering-reference.md` and `firebase-database-rules.json`.
+Full path detail, per-item shapes, and the write-constraint expressions live in `event-tools/ggpogo-engineering-reference.md` and `event-tools/firebase-database-rules.json`.
 
 ---
 
@@ -169,13 +175,13 @@ Full path detail, per-item shapes, and the write-constraint expressions live in 
 - **Google Calendar ID:** `0b71cbdb2aa62006ef5ae863c91dfe647ae938a078ab0971a77c9b0d8910cbdc@group.calendar.google.com`
 - **Calendar API key:** `AIzaSyAQjDnfy-kcFX4T6yyq96fgw5RWTze6Xdc` (Calendar API only). In JS files it must be encoded — the `@` in the Calendar ID is `\u0040` (see pre-delivery checklist item 2).
 - **Campfire deep link:** `https://campfire.onelink.me/eBr8?af_dp=campfire://&af_force_deeplink=true&deep_link_sub1=cj1jbHVicyZjPTM3NzgzYzEyLWYzNWYtNDg4Yy04ZmQxLTM2ZWEyYjJlNGE0ZCZpPXRydWU=`
-- **Cloudflare Worker (Campfire CORS proxy):** `https://cmpf-tools.de/api` — also runs a scheduled 7 PM Pacific cron for daily Campfire data fetch. Source in `campfire-cors-proxy-worker.js`.
+- **Cloudflare Worker (Campfire CORS proxy):** `https://cmpf-tools.de/api` — also runs a scheduled 7 PM Pacific cron for daily Campfire data fetch. Source in `workers/campfire-cors-proxy-worker.js`.
 
 ---
 
 ## Design tokens (fast reference)
 
-Full detail in `ggpogo-website-handoff.md`.
+Full detail in `website/ggpogo-website-handoff.md`.
 
 - **Fonts:** Fredoka (headings), Nunito (body)
 - **Blue** `#1FA5DC` / **Blue Deep** `#0E5C9E` — primary, brand pages
@@ -207,9 +213,9 @@ Home=8, About=19, Events=21, Resources=23, Contact=25, Event Tools=149, Privacy 
 
 ## Reference docs (authoritative)
 
-- `ggpogo-engineering-reference.md` — Event Tools architecture, Firebase paths, auth model, product backlog, versioning convention
-- `ggpogo-website-handoff.md` — Site status per page, design system detail, WordPress admin notes, pending items
-- `ggpogo-event-tools-CHANGELOG.md` — Full Event Tools history
-- `ggpogo-site-styles-CHANGELOG.md` — Full stylesheet history
+- `event-tools/ggpogo-engineering-reference.md` — Event Tools architecture, Firebase paths, auth model, product backlog, versioning convention
+- `website/ggpogo-website-handoff.md` — Site status per page, design system detail, WordPress admin notes, pending items
+- `event-tools/ggpogo-event-tools-CHANGELOG.md` — Full Event Tools history
+- Stylesheet history (`ggpogo-site-styles-CHANGELOG.md`) now lives in the `ggpogo-website` repo, not here
 
 If they disagree with this file, they win. This file is a fast index; they are the source of truth.
