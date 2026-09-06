@@ -1,12 +1,11 @@
 <!--
-  v2.16.0 — Giveaway: mark a pulled winner as a No-Show
-  Drawing a winner now offers a "No-Show" button next to Re-roll. Unlike
-  Re-roll (just re-spins, the outgoing entrant stays fully eligible for
-  everything), No-Show permanently marks them so they can't be pulled
-  again - the host picks, per incident, whether that's just for the
-  prize they no-showed on or for the rest of the whole session. No-shows
-  stay visible in the Entrants list (tagged NO SHOW, or a small OUT count
-  for a prize-only mark) with an undo button in case of a mis-tap.
+  v2.17.0 — Giveaway: add a prize mid-session
+  Hosts can now add a prize while a giveaway is live, without leaving the
+  drawing screen. An "Add prize" link next to "Drawing for" opens the
+  same prize form used during setup (type, name, description, quantity)
+  right there in the live session; the new prize appears in the picker
+  immediately since prizes are already tracked separately from the
+  session itself.
   Full history: ggpogo-event-tools-CHANGELOG.md
 -->
 <div id="ggpogo-event-tools-root" style="min-height: 100vh; width: 100%;"></div>
@@ -5547,6 +5546,22 @@
     // per-incident call the host makes, not a fixed setting. See
     // markNoShow below.
     const [noShowPrompt, setNoShowPrompt] = useState(false);
+    // v2.17.0: mid-session "Add Prize" — a host running a live giveaway
+    // previously had to back out to the dashboard's Setup accordion to
+    // add a prize (gw:prizes is a separate, reactively-watched path from
+    // gw:session, so that actually worked, but it wasn't a supported or
+    // discoverable action from inside a live session). This form mirrors
+    // GiveawayApp's Setup-accordion Add Prize form field-for-field, kept
+    // as its own local copy rather than lifted into shared props, since
+    // GiveawaySession already writes directly to Firebase elsewhere
+    // (removeEntrant, undoNoShow) and doesn't otherwise need prize-CRUD
+    // callbacks threaded in from the parent.
+    const [showAddPrize, setShowAddPrize] = useState(false);
+    const [newPrizeType, setNewPrizeType] = useState("generic"); // generic|code|physical|special
+    const [newPrizeName, setNewPrizeName] = useState("");
+    const [newPrizeQty, setNewPrizeQty] = useState(1);
+    const [newPrizeDesc, setNewPrizeDesc] = useState("");
+    const [newSpecialDelivery, setNewSpecialDelivery] = useState("physical"); // code|physical
 
     useEffect(() => {
       const unwatch1 = FB.watch("gw:session", (val) => { setSession(val); setSessionLoaded(true); });
@@ -5604,6 +5619,28 @@
     const typeLabel = { generic: "Generic", code: "Code", physical: "Physical", special: "Special" };
     const typeColor = { generic: c.blue, code: c.purple, physical: c.orange, special: c.sun };
     const typeIcon = { generic: "gift", code: "code", physical: "gift", special: "star" };
+
+    // v2.17.0: same logic as GiveawayApp's addPrize — new prizes always
+    // land in gw:prizes, which this screen already watches live, so a
+    // freshly-added prize shows up in the picker below immediately with
+    // no further wiring needed.
+    const addPrize = async () => {
+      const name = newPrizeName.trim();
+      const qty = Math.max(1, Number(newPrizeQty) || 1);
+      if (!name) return;
+      const id = genId();
+      const prize = { name, quantity: qty, remaining: qty, type: newPrizeType };
+      if (newPrizeType === "physical") prize.description = newPrizeDesc.trim() || null;
+      if (newPrizeType === "special") {
+        prize.delivery = newSpecialDelivery;
+        if (newSpecialDelivery === "physical") prize.description = newPrizeDesc.trim() || null;
+      }
+      await FB.set(`gw:prizes/${id}`, prize);
+      setNewPrizeName("");
+      setNewPrizeQty(1);
+      setNewPrizeDesc("");
+      setShowAddPrize(false);
+    };
 
     const addManualEntrant = async () => {
       const name = manualName.trim();
@@ -6026,7 +6063,16 @@
 
         {/* Prize picker */}
         <Paper c={c} accent={c.purple} style={{ marginBottom: 16 }}>
-          <div style={{ fontWeight: 700, fontSize: 15, color: c.ink, marginBottom: 10 }}>Drawing for</div>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+            <div style={{ fontWeight: 700, fontSize: 15, color: c.ink }}>Drawing for</div>
+            <button onClick={() => setShowAddPrize(!showAddPrize)} style={{
+              background: "none", border: "none", cursor: "pointer", padding: "4px 6px",
+              display: "inline-flex", alignItems: "center", gap: 4,
+              fontFamily: "Fredoka, sans-serif", fontWeight: 700, fontSize: 12, color: c.purple,
+            }}>
+              <Icon name="add" size={12} /> Add prize
+            </button>
+          </div>
           {remainingPrizes.length === 0 ? (
             <div style={{ textAlign: "center", color: c.inkMute, fontSize: 13, padding: "6px 0" }}>All prizes have been awarded!</div>
           ) : (
@@ -6052,6 +6098,63 @@
               })}
             </div>
           )}
+
+          {/* v2.17.0: mid-session Add Prize — collapsed by default, same
+              field set as the dashboard Setup accordion's Add Prize form. */}
+          {showAddPrize ? (
+            <div style={{ marginTop: 14, paddingTop: 14, borderTop: `1.5px dashed ${c.paperEdge}` }}>
+              <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
+                {["generic", "code", "physical", "special"].map(t => (
+                  <button key={t} onClick={() => setNewPrizeType(t)} style={{
+                    flex: 1, padding: "8px 0", borderRadius: 10, border: `2px solid ${newPrizeType === t ? (typeColor[t] || c.blue) : c.paperEdge}`,
+                    background: newPrizeType === t ? (typeColor[t] || c.blue) : "#fff", color: newPrizeType === t ? "#fff" : c.inkMute,
+                    fontFamily: "Fredoka, sans-serif", fontWeight: 700, fontSize: 11, cursor: "pointer", textTransform: "uppercase", letterSpacing: 0.3
+                  }}>{typeLabel[t]}</button>
+                ))}
+              </div>
+
+              <div style={{ fontSize: 11, color: c.inkMute, marginBottom: 10, lineHeight: 1.5, padding: "6px 8px", background: c.paperDim, borderRadius: 8 }}>
+                {newPrizeType === "generic" ? "Basic prize — winner is announced, you hand it out." : null}
+                {newPrizeType === "code" ? "Pulls a code from your Code Drop pool and reveals it on the winner's phone." : null}
+                {newPrizeType === "physical" ? "Tangible prize with a description — winner is announced live." : null}
+                {newPrizeType === "special" ? "Premium prize — requires you to confirm delivery on-screen." : null}
+              </div>
+
+              <input value={newPrizeName} onChange={e => setNewPrizeName(e.target.value)} placeholder={
+                newPrizeType === "code" ? "Prize label (e.g. Elite Raid Pass Code)" :
+                newPrizeType === "physical" ? "Prize name (e.g. Pokémon Pin Set)" :
+                newPrizeType === "special" ? "Prize name (e.g. Exclusive Shiny Trade)" :
+                "Prize name (e.g. Sticker Pack)"
+              } style={{ marginBottom: 8 }} onKeyDown={e => { if (e.key === "Enter") addPrize(); }} />
+
+              {(() => {
+                const specialWithPhysicalDelivery = newPrizeType === "special" ? newSpecialDelivery === "physical" : false;
+                return (newPrizeType === "physical" || specialWithPhysicalDelivery) ? (
+                  <textarea value={newPrizeDesc} onChange={e => setNewPrizeDesc(e.target.value)} placeholder="Description (optional)" rows={2} style={{ marginBottom: 8 }} />
+                ) : null;
+              })()}
+
+              {newPrizeType === "special" ? (
+                <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+                  <label style={{ flex: 1, display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", borderRadius: 10, cursor: "pointer", background: newSpecialDelivery === "code" ? (c.purple + "1A") : c.paperDim, border: `2px solid ${newSpecialDelivery === "code" ? c.purple : "transparent"}` }}>
+                    <input type="radio" name="specialDeliverySession" checked={newSpecialDelivery === "code"} onChange={() => setNewSpecialDelivery("code")} style={{ width: "auto", padding: 0 }} />
+                    <div><div style={{ fontWeight: 700, fontSize: 12, color: c.ink }}>Code</div><div style={{ fontSize: 10, color: c.inkMute }}>From code pool</div></div>
+                  </label>
+                  <label style={{ flex: 1, display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", borderRadius: 10, cursor: "pointer", background: newSpecialDelivery === "physical" ? (c.orange + "1A") : c.paperDim, border: `2px solid ${newSpecialDelivery === "physical" ? c.orange : "transparent"}` }}>
+                    <input type="radio" name="specialDeliverySession" checked={newSpecialDelivery === "physical"} onChange={() => setNewSpecialDelivery("physical")} style={{ width: "auto", padding: 0 }} />
+                    <div><div style={{ fontWeight: 700, fontSize: 12, color: c.ink }}>Physical</div><div style={{ fontSize: 10, color: c.inkMute }}>Hand-delivered</div></div>
+                  </label>
+                </div>
+              ) : null}
+
+              <div style={{ display: "flex", gap: 8 }}>
+                <input type="number" min={1} value={newPrizeQty} onChange={e => setNewPrizeQty(e.target.value)} style={{ flex: 1 }} placeholder="Qty" />
+                <StickerBtn fill={c.purple} shadow={c.purpleDeep} small onClick={addPrize} disabled={!newPrizeName.trim()}>
+                  <Icon name="add" size={13} /> Add
+                </StickerBtn>
+              </div>
+            </div>
+          ) : null}
         </Paper>
 
         {/* Slot machine / draw area */}
@@ -7831,7 +7934,7 @@
   // Bump this with every release so the live page always shows what's
   // actually deployed — no more guessing whether a paste went through,
   // or which version is live when reporting a field issue.
-  const APP_VERSION = "v2.16.0";
+  const APP_VERSION = "v2.17.0";
 
   function VersionFooter() {
     return (
