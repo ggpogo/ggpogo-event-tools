@@ -1,31 +1,12 @@
 <!--
-  v2.15.0 — Calendar Sync panel (new host-only feature)
-  New "Calendar Sync" tile on the host dashboard's Quick links (now a
-  2x2 grid) opens a panel for the GGPoGo Events Google Calendar
-  automation, backed by a separate Cloudflare Worker
-  (ggpogo-calendar-sync-worker.js):
-  - Sync now: triggers the Worker's on-demand sync endpoint directly
-    from the page and shows the result inline once it returns.
-  - Last run / past runs: reads calendarSync:lastRun and
-    calendarSync:runs from Firebase, so results show up from any
-    run — manual or a future scheduled one — not just the one this
-    page personally triggered. Surfaces added/updated/unchanged
-    counts, per-event errors, events flagged for manual review
-    (never auto-deleted), and cross-check notes.
-  - Settings: inclusion keywords, on/off toggles for the Dittobase
-    and GO Hub cross-checks, and the default event location, all
-    saved to settings:calendarSync for the Worker to read before its
-    next run.
-  New Firebase paths added in this delivery (see the companion
-  firebase-database-rules.json): settings:calendarSync (public read,
-  host write, matching the existing settings:* pattern),
-  calendarSync:lastRun and calendarSync:runs (host-only read; write
-  is currently open since the Worker has no Firebase Auth identity of
-  its own — see that file's notes).
-  CALENDAR_SYNC_WORKER_URL and CALENDAR_SYNC_KEY (near the
-  CalendarSyncSettings component) are placeholders — fill in the
-  Worker's deployed URL and its SYNC_TRIGGER_KEY secret before this
-  screen's Sync now button will work.
+  v2.16.0 — Giveaway: mark a pulled winner as a No-Show
+  Drawing a winner now offers a "No-Show" button next to Re-roll. Unlike
+  Re-roll (just re-spins, the outgoing entrant stays fully eligible for
+  everything), No-Show permanently marks them so they can't be pulled
+  again - the host picks, per incident, whether that's just for the
+  prize they no-showed on or for the rest of the whole session. No-shows
+  stay visible in the Entrants list (tagged NO SHOW, or a small OUT count
+  for a prize-only mark) with an undo button in case of a mis-tap.
   Full history: ggpogo-event-tools-CHANGELOG.md
 -->
 <div id="ggpogo-event-tools-root" style="min-height: 100vh; width: 100%;"></div>
@@ -751,6 +732,12 @@
       // record — see updateProfileActivity. null for guests (no uid) or
       // entries recorded before this field existed.
       uid: v.uid || null, activityRecordId: v.activityRecordId || null,
+      // v2.16.0: no-show marking (see markNoShow in GiveawaySession).
+      // noShow excludes this entrant from every future draw in the
+      // session; noShowPrizeIds excludes them from specific prizes only,
+      // keyed by prize id, keeping them eligible for the rest.
+      noShow: !!v.noShow, noShowAt: v.noShowAt || null,
+      noShowPrizeIds: v.noShowPrizeIds || null,
     }));
   }
 
@@ -5554,6 +5541,12 @@
     // below and its render site) — short-lived "Copied!" feedback state,
     // same pattern as PassportSession's copyLink.
     const [announceCopied, setAnnounceCopied] = useState(false);
+    // v2.16.0: No-Show is a two-step action — tapping "No-Show" doesn't
+    // act immediately, it swaps the button row for a scope choice (this
+    // prize only, or the whole rest of the session), since that's a
+    // per-incident call the host makes, not a fixed setting. See
+    // markNoShow below.
+    const [noShowPrompt, setNoShowPrompt] = useState(false);
 
     useEffect(() => {
       const unwatch1 = FB.watch("gw:session", (val) => { setSession(val); setSessionLoaded(true); });
@@ -5585,9 +5578,28 @@
       );
     }
 
-    const eligible = entrants.filter(e => !e.won);
+    // v2.16.0: a no-show flagged for the whole session (e.noShow) is out
+    // of the pool entirely; a no-show flagged for one prize only stays
+    // in `eligible` and is filtered out per-draw instead, see
+    // isNoShowForPrize/eligibleForSelectedPrize below.
+    const eligible = entrants.filter(e => {
+      if (e.won) return false;
+      if (e.noShow) return false;
+      return true;
+    });
     const remainingPrizes = prizes.filter(p => p.remaining > 0);
     const selectedPrize = prizes.find(p => p.id === selectedPrizeId);
+
+    // True if this entrant can't be drawn for this specific prize —
+    // either because they were marked a no-show for the whole session
+    // (already filtered out of `eligible` above, checked again here for
+    // callers that pass a raw entrant), or for this prize specifically.
+    const isNoShowForPrize = (e, prizeId) => {
+      if (e.noShow) return true;
+      if (e.noShowPrizeIds) { if (e.noShowPrizeIds[prizeId]) return true; }
+      return false;
+    };
+    const eligibleForSelectedPrize = selectedPrize ? eligible.filter(e => !isNoShowForPrize(e, selectedPrize.id)) : eligible;
 
     const typeLabel = { generic: "Generic", code: "Code", physical: "Physical", special: "Special" };
     const typeColor = { generic: c.blue, code: c.purple, physical: c.orange, special: c.sun };
@@ -5609,6 +5621,18 @@
       await FB.remove(`gw:entrants/${id}`);
     };
 
+    // Clears every no-show mark on this entrant (both the whole-session
+    // flag and any per-prize exclusions) — for undoing a mis-tap from
+    // the Entrants list below.
+    const undoNoShow = async (id) => {
+      await FB.update({
+        [`gw:entrants/${id}/noShow`]: null,
+        [`gw:entrants/${id}/noShowAt`]: null,
+        [`gw:entrants/${id}/noShowPrizeIds`]: null,
+      });
+    };
+    const noShowPrizeCount = (e) => e.noShowPrizeIds ? Object.keys(e.noShowPrizeIds).length : 0;
+
     // Build a weighted pool: each entrant appears (1 + extraEntries) times.
     // Used by both draw() and reroll() so bonus entries are always honoured.
     const buildWeightedPool = (source) => {
@@ -5621,13 +5645,13 @@
     };
 
     const draw = () => {
-      if (!selectedPrize || eligible.length === 0 || spinning || confirming) return;
+      if (!selectedPrize || eligibleForSelectedPrize.length === 0 || spinning || confirming) return;
       setSpinning(true);
       setWinner(null);
       setWonCode(null);
       setWonCodeReward(null);
       setAwaitingDelivery(false);
-      const pool = buildWeightedPool(eligible);
+      const pool = buildWeightedPool(eligibleForSelectedPrize);
       const finalPick = pool[Math.floor(Math.random() * pool.length)];
       // Slot-machine cycling animation
       let ticks = 0;
@@ -5775,6 +5799,7 @@
       setSpinName("");
       setAwaitingDelivery(false);
       setAnnounceCopied(false);
+      setNoShowPrompt(false);
     };
 
     // v2.13.7: builds the shareable "you won!" text block a host can copy
@@ -5820,7 +5845,11 @@
       }
       }
       }
-      const eligibleForReroll = eligible.filter(e => e.id !== winner.entrantId);
+      const eligibleForReroll = eligible.filter(e => {
+        if (e.id === winner.entrantId) return false;
+        if (isNoShowForPrize(e, winner.prizeId)) return false;
+        return true;
+      });
       setWinner(null);
       setWonCode(null);
       setWonCodeReward(null);
@@ -5843,6 +5872,79 @@
           setSpinName(finalPick.name);
           setSpinning(false);
           setWinner({ entrantId: finalPick.id, name: finalPick.name, prizeId: selectedPrize.id });
+        }
+      }, 80);
+    };
+
+    // No-Show: unlike Re-roll (which just re-spins and leaves the
+    // outgoing entrant fully eligible for everything later), No-Show
+    // permanently marks them so they can't be drawn again — either just
+    // for the prize they no-showed on, or for the rest of this whole
+    // session, whichever scope the host picks on the prompt that
+    // replaces the button row (see noShowPrompt/setNoShowPrompt at the
+    // render site below). Persists the mark first (awaited, so a lost
+    // write can't silently leave them re-drawable), patches their My
+    // Activity record the same way reroll does, then re-draws for the
+    // same prize.
+    const markNoShow = async (scope) => {
+      if (!winner || spinning || confirming) return;
+      const entrantId = winner.entrantId;
+      const prizeId = winner.prizeId;
+      const outgoing = entrants.find(e => e.id === entrantId);
+      const now = Date.now();
+      setConfirming(true);
+      try {
+        if (scope === "session") {
+          await FB.update({
+            [`gw:entrants/${entrantId}/noShow`]: true,
+            [`gw:entrants/${entrantId}/noShowAt`]: now,
+          });
+        } else {
+          await FB.update({
+            [`gw:entrants/${entrantId}/noShowPrizeIds/${prizeId}`]: true,
+            [`gw:entrants/${entrantId}/noShowAt`]: now,
+          });
+        }
+      } finally {
+        setConfirming(false);
+      }
+      if (outgoing) {
+      if (outgoing.uid) {
+      if (outgoing.activityRecordId) {
+        updateProfileActivity(outgoing.uid, "giveawayEntries", outgoing.activityRecordId, {
+          status: "picked_not_claimed", pickedAt: now,
+        });
+      }
+      }
+      }
+      setNoShowPrompt(false);
+      setWinner(null);
+      setWonCode(null);
+      setWonCodeReward(null);
+      setAwaitingDelivery(false);
+      const eligibleForRedraw = eligible.filter(e => {
+        if (e.id === entrantId) return false;
+        if (isNoShowForPrize(e, prizeId)) return false;
+        return true;
+      });
+      if (eligibleForRedraw.length === 0) {
+        setSpinName("No other entrants left");
+        return;
+      }
+      setSpinning(true);
+      const pool = buildWeightedPool(eligibleForRedraw);
+      const finalPick = pool[Math.floor(Math.random() * pool.length)];
+      let ticks = 0;
+      const totalTicks = 18 + Math.floor(Math.random() * 6);
+      const interval = setInterval(() => {
+        const r = pool[Math.floor(Math.random() * pool.length)];
+        setSpinName(r.name);
+        ticks++;
+        if (ticks >= totalTicks) {
+          clearInterval(interval);
+          setSpinName(finalPick.name);
+          setSpinning(false);
+          setWinner({ entrantId: finalPick.id, name: finalPick.name, prizeId: prizeId });
         }
       }, 80);
     };
@@ -5980,7 +6082,7 @@
 
           {/* Draw / Confirm flow */}
           {!winner ? (
-            <StickerBtn fill={c.orange} shadow={c.orangeDeep} onClick={draw} disabled={spinning || confirming || !selectedPrize || eligible.length === 0} style={{ fontSize: 16, padding: "14px 32px", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+            <StickerBtn fill={c.orange} shadow={c.orangeDeep} onClick={draw} disabled={spinning || confirming || !selectedPrize || eligibleForSelectedPrize.length === 0} style={{ fontSize: 16, padding: "14px 32px", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
               <Icon name="play" size={15} /> {spinning ? "Drawing…" : "Draw Winner"}
             </StickerBtn>
           ) : wonCode ? (
@@ -5994,6 +6096,23 @@
                 </StickerBtn>
                 <StickerBtn fill={c.paperDim} shadow={c.paperEdge} onClick={copyAnnouncement} style={{ color: c.ink, fontSize: 13, display: "inline-flex", alignItems: "center", gap: 6 }}>
                   <Icon name="external" size={12} /> {announceCopied ? "Copied!" : "Copy announcement"}
+                </StickerBtn>
+              </div>
+            </div>
+          ) : noShowPrompt ? (
+            <div>
+              <div style={{ fontSize: 13, color: c.inkSoft, marginBottom: 12 }}>
+                Mark <strong>{winner.name}</strong> a no-show for just <strong>{selectedPrize ? selectedPrize.name : "this prize"}</strong>, or for the rest of this giveaway?
+              </div>
+              <div style={{ display: "flex", gap: 10, justifyContent: "center", flexWrap: "wrap" }}>
+                <StickerBtn fill={c.sun} shadow={c.sunDeep} onClick={() => markNoShow("prize")} disabled={confirming} style={{ color: c.ink, fontSize: 13, padding: "12px 18px" }}>
+                  {confirming ? "Marking…" : "Just this prize"}
+                </StickerBtn>
+                <StickerBtn fill={c.strawberry} shadow={c.strawDeep} onClick={() => markNoShow("session")} disabled={confirming} style={{ fontSize: 13, padding: "12px 18px" }}>
+                  {confirming ? "Marking…" : "Whole session"}
+                </StickerBtn>
+                <StickerBtn fill={c.paperDim} shadow={c.paperEdge} onClick={() => setNoShowPrompt(false)} disabled={confirming} style={{ color: c.ink, fontSize: 13 }}>
+                  Cancel
                 </StickerBtn>
               </div>
             </div>
@@ -6012,6 +6131,9 @@
                 <StickerBtn fill={c.sun} shadow={c.sunDeep} onClick={reroll} disabled={confirming} style={{ color: c.ink, fontSize: 13, display: "inline-flex", alignItems: "center", gap: 6 }}>
                   <Icon name="undo" size={12} /> Re-roll
                 </StickerBtn>
+                <StickerBtn fill={c.strawberry} shadow={c.strawDeep} onClick={() => setNoShowPrompt(true)} disabled={confirming} style={{ fontSize: 13, display: "inline-flex", alignItems: "center", gap: 6 }}>
+                  <Icon name="warning" size={12} /> No-Show
+                </StickerBtn>
                 <StickerBtn fill={c.paperDim} shadow={c.paperEdge} onClick={dismissWinner} disabled={confirming} style={{ color: c.ink, fontSize: 13 }}>
                   Cancel
                 </StickerBtn>
@@ -6029,19 +6151,22 @@
                 <StickerBtn fill={c.sun} shadow={c.sunDeep} onClick={reroll} disabled={confirming} style={{ color: c.ink, fontSize: 14, padding: "14px 22px", display: "inline-flex", alignItems: "center", gap: 6 }}>
                   <Icon name="undo" size={14} /> Re-roll
                 </StickerBtn>
+                <StickerBtn fill={c.strawberry} shadow={c.strawDeep} onClick={() => setNoShowPrompt(true)} disabled={confirming} style={{ fontSize: 14, padding: "14px 18px", display: "inline-flex", alignItems: "center", gap: 6 }}>
+                  <Icon name="warning" size={13} /> No-Show
+                </StickerBtn>
               </div>
               <div style={{ marginTop: 10 }}>
                 <StickerBtn fill={c.paperDim} shadow={c.paperEdge} small onClick={copyAnnouncement} disabled={confirming} style={{ color: c.ink, fontSize: 12, display: "inline-flex", alignItems: "center", gap: 6 }}>
                   <Icon name="external" size={11} /> {announceCopied ? "Copied!" : "Copy announcement"}
                 </StickerBtn>
               </div>
-              <div style={{ marginTop: 10, fontSize: 11, color: c.inkMute }}>Re-roll if {winner.name} isn't available to claim this prize.</div>
+              <div style={{ marginTop: 10, fontSize: 11, color: c.inkMute }}>Re-roll if {winner.name} isn't available right now. No-Show marks them out so they can't be drawn again.</div>
             </div>
           )}
           {!selectedPrize ? (remainingPrizes.length > 0 ? (!winner ? (
             <div style={{ marginTop: 10, fontSize: 12, color: c.strawberry, fontWeight: 700 }}>Pick a prize above first.</div>
           ) : null) : null) : null}
-          {eligible.length === 0 ? (remainingPrizes.length > 0 ? (
+          {eligibleForSelectedPrize.length === 0 ? (remainingPrizes.length > 0 ? (
             <div style={{ marginTop: 10, fontSize: 12, color: c.strawberry, fontWeight: 700 }}>No eligible entrants left.</div>
           ) : null) : null}
         </Paper>
@@ -6066,13 +6191,21 @@
                   entry order within each group) instead of interleaved
                   chronologically with still-eligible entrants — at 100+
                   entrants, scanning "who's still eligible" during a live
-                  draw was tedious with wins scattered throughout the list. */}
+                  draw was tedious with wins scattered throughout the list.
+                  v2.16.0: whole-session no-shows join winners at the
+                  bottom for the same reason — they're also done being
+                  drawable, just not because they won. A prize-only
+                  no-show stays in the normal (top) group, since they're
+                  still fully active for anything else. */}
               {entrants.slice().sort((a, b) => {
-                if (!!a.won !== !!b.won) return a.won ? 1 : -1;
+                const aOut = !!a.won || !!a.noShow;
+                const bOut = !!b.won || !!b.noShow;
+                if (aOut !== bOut) return aOut ? 1 : -1;
                 return (a.enteredAt || 0) - (b.enteredAt || 0);
               }).map((e, idx) => {
-                const rowBg = e.won ? (c.grassMid + "1A") : c.paperDim;
+                const rowBg = e.won ? (c.grassMid + "1A") : e.noShow ? (c.strawberry + "14") : c.paperDim;
                 const totalEntries = 1 + (e.extraEntries || 0);
+                const outForSomePrizes = noShowPrizeCount(e);
                 return (
                   <div key={e.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", background: rowBg, borderRadius: 10, fontSize: 14 }}>
                     {/* Entry order badge */}
@@ -6083,6 +6216,15 @@
                     {e.extraEntries > 0 ? (
                       <span style={{ flexShrink: 0, background: c.sun + "33", color: c.sunDeep, fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 8, letterSpacing: 0.5 }}>+{e.extraEntries} bonus</span>
                     ) : null}
+                    {/* v2.16.0: prize-only no-show badge — this entrant is
+                        still fully active (buttons render below as usual),
+                        just excluded from being redrawn for one or more
+                        specific prizes. Not shown for a whole-session
+                        no-show, which gets its own dedicated row state
+                        below instead. */}
+                    {!e.won ? (!e.noShow ? (outForSomePrizes > 0 ? (
+                      <span title="Marked no-show for specific prize(s)" style={{ flexShrink: 0, background: c.strawberry + "22", color: c.strawDeep, fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 7, letterSpacing: 0.5 }}>OUT ×{outForSomePrizes}</span>
+                    ) : null) : null) : null}
                     {e.won ? (
                       <span style={{ flexShrink: 0, display: "inline-flex", alignItems: "center", gap: 4 }}>
                         {/* v2.13.8: shows once the winner taps "I'm on my
@@ -6096,6 +6238,17 @@
                         ) : null}
                         <span style={{ fontSize: 11, fontWeight: 700, color: c.grassDeep, letterSpacing: 1 }}>WON</span>
                       </span>
+                    ) : e.noShow ? (
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+                        <span style={{ fontSize: 11, fontWeight: 700, color: c.strawDeep, letterSpacing: 1 }}>NO SHOW</span>
+                        <button
+                          onClick={() => undoNoShow(e.id)}
+                          title="Undo — make eligible again"
+                          style={{ background: c.paperEdge, border: "none", color: c.inkSoft, cursor: "pointer", borderRadius: 8, width: 26, height: 26, display: "inline-flex", alignItems: "center", justifyContent: "center" }}
+                        >
+                          <Icon name="undo" size={12} />
+                        </button>
+                      </div>
                     ) : (
                       <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
                         {/* Remove bonus entry button — only shown when bonuses exist */}
@@ -6118,6 +6271,16 @@
                           title="Add bonus entry"
                           style={{ background: c.sun, border: "none", color: "#fff", cursor: "pointer", borderRadius: 8, width: 26, height: 26, display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 16, fontWeight: 700, lineHeight: 1 }}
                         >+</button>
+                        {/* Undo prize-only no-show — only shown when it applies */}
+                        {outForSomePrizes > 0 ? (
+                          <button
+                            onClick={() => undoNoShow(e.id)}
+                            title="Undo no-show for the prize(s) they're sitting out"
+                            style={{ background: c.strawberry + "22", border: "none", color: c.strawDeep, cursor: "pointer", borderRadius: 8, width: 26, height: 26, display: "inline-flex", alignItems: "center", justifyContent: "center" }}
+                          >
+                            <Icon name="undo" size={12} />
+                          </button>
+                        ) : null}
                         {/* Remove entrant button */}
                         <button onClick={() => removeEntrant(e.id)} style={{ background: "transparent", border: "none", color: c.strawberry, cursor: "pointer", fontSize: 18, fontWeight: 700, lineHeight: 1, padding: "0 2px" }}>×</button>
                       </div>
@@ -7668,7 +7831,7 @@
   // Bump this with every release so the live page always shows what's
   // actually deployed — no more guessing whether a paste went through,
   // or which version is live when reporting a field issue.
-  const APP_VERSION = "v2.15.0";
+  const APP_VERSION = "v2.16.0";
 
   function VersionFooter() {
     return (

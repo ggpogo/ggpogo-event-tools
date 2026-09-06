@@ -435,3 +435,81 @@ Updated `ggpogo-site-styles.css`'s `.gg-page-header::before` rule to the new URL
 - `ggpogo-site-styles.css` — `Version: 1.5.2` → `1.5.3`; `bg-wave.png` URL repointed to the `/2026/07/` upload; in-file header rewritten
 - `ggpogo-site-styles-CHANGELOG.md` — 1.5.3 entry appended
 - `ggpogo-event-tools-engineering-breakdown.md` — this section (new)
+
+## Session: 2026-09-05 — Giveaway No-Show marking (v2.16.0)
+
+**Scope:** Eric wanted a way to mark a pulled giveaway winner as a no-show so they get removed and can't be pulled again, "for the same prize and/or session" — his own phrasing signaled the scope was genuinely open, not a settled requirement. Clarified via `AskUserQuestion` before writing any code (this project's "scope before code" convention), then implemented, verified, and delivered v2.16.0.
+
+**Companion docs:** `ggpogo-event-tools-CHANGELOG.md` (v2.16.0 entry, also backfills the missing v2.15.0 Calendar Sync entry — see the version-numbering note in both), `event-tools.html` v2.16.0 in-file header.
+
+---
+
+### 1. Version-numbering collision, discovered and corrected mid-session
+
+This feature was first built and delivered against the `event-tools.html` project doc in Claude's Project, which was a stale snapshot dated 2026-07-23 at `APP_VERSION v2.14.3`. That build was versioned "v2.15.0" and delivered — but that number was already taken. Two real deliveries had shipped directly to this repo/device since the project doc was last synced, bypassing project docs entirely: v2.14.4 (sign-in button copy fix) and the real v2.15.0 (Calendar Sync panel, a substantial host-only feature with its own Firebase paths and Cloudflare Worker integration).
+
+The collision surfaced only after Eric connected this folder mid-session and the real file's `APP_VERSION` was read directly — until then, nothing in the project doc's own history indicated it had fallen behind. Before assuming it was safe to just rebase and reversion, the giveaway-related code regions in the stale base were diffed against the real file to confirm they were unchanged (just line-shifted) between the two — they were, so the No-Show edits replayed cleanly onto the real file with no logic conflicts.
+
+**Corrective action taken:** rebuilt the same feature against the real current file, re-versioned as v2.16.0 (a new MINOR bump, since v2.15.0 was already claimed by Calendar Sync), and backfilled a v2.15.0 CHANGELOG entry that had never been written down anywhere the project doc could see. The now-superseded "v2.15.0" No-Show delivery from earlier in this session should be treated as void — it was never pasted into WordPress and should not be used.
+
+**Process gap identified:** this project's source of truth can drift silently between the live repo/device and the Claude Project doc snapshot whenever a delivery happens in a session without a connected folder. Worth checking the real file's `APP_VERSION` (or `git log`) against the project doc's assumed version at the start of any session that's about to bump the version, not just trusting the project doc is current.
+
+### 2. Clarifying the scope before touching code
+
+Two genuinely open design questions, both put to Eric via `AskUserQuestion` rather than assumed:
+
+1. **Exclusion scope** — just the prize the winner was pulled for, or the whole rest of the session? Eric picked **"host picks each time"** — a per-incident choice, not a fixed setting.
+2. **List visibility** — does a no-show disappear from the Entrants list (like the existing × remove-entrant button), or stay visible tagged, so a mis-tap can be undone? Eric picked **stay visible, tagged "NO SHOW", undoable**.
+
+Both answers meaningfully changed the data model and UI (a fixed-scope answer would have needed only a boolean; "host picks each time" needed a two-step prompt UI and a prize-keyed exclusion map alongside the session-wide flag), which is exactly the kind of decision this project's convention says to settle before writing code, not bake in from a guess.
+
+### 3. Data model
+
+Three new fields on `gw:entrants/{id}`, following the existing object-map convention (`cd:codes`, `gw:prizes`):
+- `noShow` (bool) — excluded from every remaining draw in the session, same weight as `won` for pool-eligibility purposes.
+- `noShowAt` (timestamp) — when the most recent no-show mark was set.
+- `noShowPrizeIds` (object map keyed by prize id) — excluded from being redrawn for specific prizes only, while staying eligible for everything else.
+
+**`entrantsObjToArray` had to be updated to whitelist the three new fields through.** This function constructs the host's local `entrants` array field-by-field rather than spreading the raw Firebase object, so any field not explicitly listed there is silently dropped from every downstream computation (`eligible`, the Entrants list, etc.) even though it's written and persisted correctly in the database. This is the same gotcha that would have hit `onMyWay` in v2.13.8 had it been missed there — worth checking this function first, before assuming a new entrant field "isn't working," the next time one is added.
+
+**Firebase rules:** no change made, and this time confirmed directly against the real `firebase-database-rules.json` (not just the documented precedent) — the `gw:entrants/{entrantId}` shape-validation rule only fires on `!data.exists()`, i.e. the attendee's own self-entry write at creation, not on subsequent host-driven `FB.update` calls on existing paths. `wonPrize`, `onMyWay`/`onMyWayAt`, and `extraEntries` were all added the same way in earlier versions without a rules migration, so the three no-show fields follow that same precedent — and this session verified it against the live rules file rather than leaving it as an open item for Eric to check later.
+
+### 4. Eligibility logic
+
+- `eligible` (base pool): unchanged shape, now also excludes `e.noShow` (previously only excluded `e.won`).
+- `isNoShowForPrize(e, prizeId)`: true if `e.noShow`, or if `e.noShowPrizeIds[prizeId]` is set.
+- `eligibleForSelectedPrize`: `eligible` further filtered by `isNoShowForPrize` against the currently-selected prize — used by `draw()`'s pool, the Draw button's disabled state, and the "No eligible entrants left" message (previously all three used the un-scoped `eligible`, which didn't yet need to account for per-prize exclusion since no such field existed).
+- `reroll()`'s `eligibleForReroll` and the new `markNoShow()`'s `eligibleForRedraw` both filter on the specific prize being drawn for (`winner.prizeId`), not just the outgoing entrant's id, so a no-show from an earlier draw of the same prize can't come back around in the current redraw.
+
+Sanity-checked this logic in isolation both before wiring it into the component and again after rebasing onto the real file: a small Node script built a 4-entrant fixture (plain, whole-session no-show, prize-only no-show, already-won) and asserted the base pool and both prize-scoped pools matched expectations. Cheap to do, catches an inverted condition or a missed exclusion before it's buried in JSX.
+
+### 5. UI
+
+Added a **No-Show** button next to Re-roll in both places a live winner is shown pre-confirmation (the plain winner screen, and the Special-prize delivery-confirmation screen). Tapping it doesn't act immediately — it swaps the button row for a `noShowPrompt` state showing **"Just this prize"** / **"Whole session"** / Cancel, per the scope decision above. Either choice calls the new `markNoShow(scope)`, which persists the mark (awaited, wrapped in the existing `confirming` busy-guard so a double-tap can't race it), patches the outgoing entrant's My Activity record the same way `reroll()` already does (`status: "picked_not_claimed"`), then re-draws for the same prize using the same slot-machine animation code as `reroll()`.
+
+Entrants list changes, per the visibility decision:
+- Sort comparator extended so a whole-session no-show joins winners at the bottom (previously only `won` did).
+- A whole-session no-show gets its own row state: greyed differently from a winner (light strawberry tint vs. grass tint), tagged **NO SHOW**, with an undo button (`undoNoShow`) that clears all three fields at once.
+- A prize-only no-show stays in the normal top group — all the usual bonus/remove controls still work — but picks up a small **OUT ×N** badge (N = `noShowPrizeIds` key count) and its own inline undo button, so it's visible without disrupting the entrant's active status.
+
+### 6. Verification
+
+Followed the process this project has learned the hard way to require for any structural JS/JSX change, run twice — once against the stale-base build, again in full after the rebase onto the real file:
+- Zero raw `&&` — the first draft introduced 3 (the eligibility filters used `a && b` conditions in `.filter()` callbacks); rewritten as nested `if`/early-return before delivery, matching the CLAUDE.md convention and the exact class of bug that shipped as v2.14.1. Re-grepped after the fix and again post-rebase: zero both times.
+- Zero raw `@` beyond the pre-existing, already-excluded ones (CSS `@media`, the Babel CDN pin, the pragma, and the two JS comments from v2.14.0/v2.14.1 that already discuss `@` in prose).
+- No `confirm()` introduced.
+- Babel pin, `data-presets`, and the classic-runtime pragma all left untouched and re-confirmed present.
+- Full script block extracted from the rebased file and run through an actual `@babel/preset-react` transform — parses clean. This is the check that would have caught the v2.14.2 bracket-mismatch incident, and it's cheap enough to run on every structural delivery going forward.
+- The isolated Node eligibility simulation described in section 4, re-run against the rebased logic.
+- The `/predeliver` skill itself was invoked this time (it wasn't available as a callable skill during the first, stale-base build) — all 9 checks passed; the one advisory (check 8, URL-construction heuristic) flagged a pre-existing, unrelated `URLSearchParams`-based redirect that isn't a bug.
+
+### 7. Open items for Eric
+
+- **Not yet tested against the live app in the browser** — the rebased file has been verified statically (grep checks, `/predeliver`, a real Babel transform, an isolated logic simulation) but not clicked through in WordPress. Worth a quick real-world runthrough (pull a winner, mark no-show both ways, confirm the undo button works and the Entrants list renders as expected) before relying on it at a live event.
+- The v2.14.2-incident recommendation to add a mandatory local-Babel-transform step to `/predeliver` itself (rather than doing it ad hoc each session) is still just a recommendation, not implemented in the skill.
+
+### 8. File manifest (this session)
+
+- `event-tools.html` — `APP_VERSION` v2.15.0 (Calendar Sync) → v2.16.0; `entrantsObjToArray` extended; `eligible`/`isNoShowForPrize`/`eligibleForSelectedPrize` added; `draw()`/`reroll()` updated to respect per-prize exclusion; new `markNoShow()`/`undoNoShow()`/`noShowPrizeCount()`; No-Show button + scope-choice prompt added to the draw-area UI; Entrants list updated with NO SHOW / OUT ×N states and undo controls; in-file changelog header rewritten.
+- `ggpogo-event-tools-CHANGELOG.md` — v2.15.0 entry backfilled (Calendar Sync, reconstructed from its in-file header), v2.16.0 entry appended.
+- `ggpogo-event-tools-engineering-breakdown.md` — this section (new), correcting the mis-versioned "v2.15.0" entry from earlier in this same session (see section 1 above).
