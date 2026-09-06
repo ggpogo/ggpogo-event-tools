@@ -259,3 +259,16 @@ Each prize carries a quantity that depletes and a relative **weight**. Weights a
 **Landing page.** `AttendeeHome` now shows a Gacha tile alongside Code Drop and Giveaway whenever a session is live, so a single QR pointed at the plain Event Tools URL covers everything running at once — no separate per-tool QR codes to juggle. Signed-in players get their spins in My Activity alongside code claims and giveaway entries, and a spin counts toward the shared Passport milestone track the same way a code claim does.
 
 **REQUIRES A FIREBASE RULES UPDATE.** New paths `gc:session`, `gc:prizes`, `gc:spins`, `gc:log` and `gc:history` need the rules in the companion `firebase-database-rules.json` published before this ships, or every spin fails with `PERMISSION_DENIED`. The two notable rules: `gc:prizes/$id/remaining` accepts an unauthenticated write only as an exact minus-one step down from a positive number while a session is live and unpaused (mirroring `cd:session/claimedCount`'s +1-only rule), and `gc:spins/$fp` is public-readable per-child, host-readable in aggregate, and write-once.
+
+### v2.18.1 — critical fix: signed-out visitors saw a landing page stuck on "Checking for active events…"
+Reported immediately after the v2.18.0 deploy: an incognito visitor to the plain `/event-tools/` URL sat on "Checking for active events…" forever, while the host's own dashboard showed Giveaway, Gacha and Passport all live.
+
+**Root cause, two faults compounding.** `AttendeeHome` holds a `loading` gate that stays true until all four of its session watchers have reported (`cd:session`, `gw:session`, `gc:session`, `pp:session`). `pp:session` was readable only by signed-in users, so a guest's listener was rejected — and `FB.watch`'s error handler logged the failure, reported it to diagnostics, and then never invoked its callback at all. That left the fourth watcher permanently unresolved and the gate permanently closed. Either fault alone was survivable; together they hung the page.
+
+**Both fixed:**
+- `FB.watch` now resolves a failed listen by calling back with `null` instead of going silent, so an unreadable path reads as an absent value rather than an unfinished read. No single denied path can freeze a screen again, on any surface, not just this one.
+- `pp:session` is now publicly readable, matching `cd:session`, `gw:session` and `gc:session`. It holds the meetup name and check-in location, the same class of data `gw:session` already publishes (including drawing lat/lng). Check-in itself still requires sign-in and is unchanged; this only lets guests see that a Passport session is live.
+
+**Why it surfaced now, having been latent since Passport shipped.** The only route to this screen is the plain `/event-tools/` URL with no query string. Per-tool QR codes deep-link straight to `?cd_claim=` / `?gw_join=`, which render the claim flows directly and never mount `AttendeeHome`. Every guest had been arriving by tool-specific QR, so nobody hit the landing page until v2.18.0's one-QR-for-everything workflow started deliberately sending people there.
+
+**REQUIRES A FIREBASE RULES UPDATE** alongside this file: the `pp:session` read change above. The app-side fix alone stops the hang, but without the rules change guests still never see the Passport tile.

@@ -89,7 +89,7 @@
       ".write": true
     },
     "pp:session": {
-      ".read": "auth != null",
+      ".read": true,
       ".write": "auth != null"
     },
     "pp:checkInLog": {

@@ -1,29 +1,26 @@
 <!--
-  v2.18.0 — Gacha: a new spin-for-a-prize tool
-  A third tool alongside Code Drop and Giveaway, with its own session
-  (gc:session) so all three can run at the same meetup. Attendees scan,
-  enter a name, and spin once per device; every spin wins something, and
-  what they get is weighted by the host.
-  - Prize pool: each prize is either a Code (pulled from the shared Code
-    Drop stash and shown on the winner's phone) or Physical (pins,
-    stickers, code cards - the winner is told to see a host, who taps to
-    confirm the handoff on the live screen). Each has a quantity that
-    depletes and a relative weight; the setup screen shows what each
-    weight works out to as a real percentage, re-normalised as prizes
-    sell out.
-  - One spin per device per session, enforced the same way Code Drop
-    enforces one code per device (gc:spins/{fp}, read directly), so a
-    refresh re-shows the prize already won instead of granting another.
-  - Host live screen: QR, spin count, prizes left, a "hand these out"
-    queue for physical wins, a recent-spins feed, pause/resume, and end
-    with CSV-exportable history.
-  - The attendee landing page now shows a Gacha tile alongside Code Drop
-    and Giveaway whenever a session is live, so one QR pointed at the
-    plain Event Tools URL covers everything running.
-  REQUIRES A FIREBASE RULES UPDATE before this ships - see the companion
-  firebase-database-rules.json for the new gc:session, gc:prizes,
-  gc:spins, gc:log and gc:history paths. Without it every spin fails
-  with PERMISSION_DENIED.
+  v2.18.1 — critical fix: signed-out visitors saw a landing page stuck
+  on "Checking for active events…"
+  AttendeeHome waits for four session watchers (Code Drop, Giveaway,
+  Gacha, Passport) before it will render tiles. pp:session was readable
+  only by signed-in users, so a guest's listener was denied — and
+  FB.watch, on an error, reported the issue and then never called its
+  callback at all, leaving that fourth watcher permanently unresolved
+  and the page permanently loading. Two fixes, either of which would
+  have been enough on its own:
+  - FB.watch now resolves a failed listen as null instead of hanging, so
+    no single unreadable path can freeze a screen again.
+  - pp:session is now publicly readable, matching cd:session/gw:session/
+    gc:session, so guests actually see the Passport tile when check-in
+    is live. It holds the meetup name and check-in location, the same
+    class of data gw:session already publishes.
+  Pre-existing since Passport shipped, but only reachable via the plain
+  /event-tools/ URL — per-tool QR links deep-link past this screen — so
+  it surfaced the moment v2.18.0's one-QR-for-everything flow started
+  sending people to the landing page.
+  REQUIRES A FIREBASE RULES UPDATE (the pp:session read change above)
+  alongside this file.
+
   Full history: ggpogo-event-tools-CHANGELOG.md
 -->
 <div id="ggpogo-event-tools-root" style="min-height: 100vh; width: 100%;"></div>
@@ -145,7 +142,15 @@
     },
     watch(path, cb) {
       const ref = db.ref(path);
-      ref.on('value', s => cb(s.val()), e => { console.error("watch", path, e); reportIssue(`listen ${path}`, e); });
+      // v2.18.1: a listener that errors (almost always PERMISSION_DENIED
+      // on a path this user can't read) used to report the issue and then
+      // never call cb at all. Any screen holding "still loading" state
+      // until its watcher answers therefore waited forever — which is
+      // exactly how one host-only path froze the whole attendee landing
+      // page on "Checking for active events…". Resolve a failed listen as
+      // "no value" so callers see an absent session rather than an
+      // unfinished read. The issue is still reported either way.
+      ref.on('value', s => cb(s.val()), e => { console.error("watch", path, e); reportIssue(`listen ${path}`, e); cb(null); });
       return () => ref.off('value');
     },
     // Atomic read-modify-write on a single node. `updateFn(currentVal) => nextVal`.
@@ -9020,7 +9025,7 @@
   // Bump this with every release so the live page always shows what's
   // actually deployed — no more guessing whether a paste went through,
   // or which version is live when reporting a field issue.
-  const APP_VERSION = "v2.18.0";
+  const APP_VERSION = "v2.18.1";
 
   function VersionFooter() {
     return (
