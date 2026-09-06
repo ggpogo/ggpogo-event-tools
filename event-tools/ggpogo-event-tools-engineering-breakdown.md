@@ -513,3 +513,90 @@ Followed the process this project has learned the hard way to require for any st
 - `event-tools.html` — `APP_VERSION` v2.15.0 (Calendar Sync) → v2.16.0; `entrantsObjToArray` extended; `eligible`/`isNoShowForPrize`/`eligibleForSelectedPrize` added; `draw()`/`reroll()` updated to respect per-prize exclusion; new `markNoShow()`/`undoNoShow()`/`noShowPrizeCount()`; No-Show button + scope-choice prompt added to the draw-area UI; Entrants list updated with NO SHOW / OUT ×N states and undo controls; in-file changelog header rewritten.
 - `ggpogo-event-tools-CHANGELOG.md` — v2.15.0 entry backfilled (Calendar Sync, reconstructed from its in-file header), v2.16.0 entry appended.
 - `ggpogo-event-tools-engineering-breakdown.md` — this section (new), correcting the mis-versioned "v2.15.0" entry from earlier in this same session (see section 1 above).
+
+## Session: 2026-09-06 — Gacha tool (v2.18.0)
+
+**Scope:** Eric wanted a third event-day tool — attendees tap for a chance at a small prize (code, code card, pin, sticker) — to run *simultaneously* with Code Drop and Giveaway, plus a shared login/landing page so he isn't juggling a separate QR code per tool at a live meetup. Scoped with `AskUserQuestion` before any code, per this project's convention.
+
+**Companion docs:** `ggpogo-event-tools-CHANGELOG.md` (v2.18.0 entry), `event-tools.html` v2.18.0 in-file header, `firebase-database-rules.json` (**must be published before this ships**).
+
+---
+
+### 1. What already existed (and why the "unified landing page" was mostly free)
+
+Before scoping the build, the existing app was read carefully rather than assumed, and three things Eric was asking for turned out to already be there:
+
+- **`AttendeeHome` is already a multi-tool landing page.** It watches `cd:session`, `gw:session` and `pp:session` and renders a tile for whichever are live, at the plain Event Tools URL with no query string. A single generic QR pointed at that URL already covered Code Drop + Giveaway running at once; the per-tool QR codes are a *shortcut*, not a requirement. Gacha only needed to add a fourth tile to that same list.
+- **Login is already app-wide, not per-tool.** `App()` holds `authUser`/`communityMode` once and threads them into every screen, so someone who signs in during a Code Drop claim is still signed in for a Giveaway entry. `GachaSpin` inherited this for free by taking the same props as `CodeClaim`/`GiveawayClaim`.
+- **Per-user history already had a home.** `users/{uid}/activity/*` plus `recordProfileActivity` is the established shape; gacha added a `gachaSpins` bucket and a branch in `ActivityHistory` rather than a new mechanism.
+
+The practical consequence: the "unified" part of the request needed roughly 40 lines of wiring, and effectively all the real work was the Gacha tool itself. Worth re-reading the existing surface before scoping a feature that sounds architectural — this one mostly wasn't.
+
+### 2. Design decisions (all Eric's, via AskUserQuestion)
+
+1. **Spin limit** — once per session per person. Cheapest to enforce and hardest to game.
+2. **Stock** — limited quantity per prize, depleting, dropping out of the pool at zero.
+3. **Odds** — a relative weight per prize, with the setup screen showing the live percentage each weight works out to.
+4. **Handoff** — by type: codes reveal on the winner's phone, physical prizes route to a host-confirmed handoff.
+
+Answer 3 is the one that shaped the most code. "Every spin wins something" means there is no loss branch anywhere — no consolation state, no miss animation, no zero-prize copy — and odds are purely a share-of-pool calculation that re-normalises as stock depletes. That is a materially simpler machine than a conventional gacha, and the whole implementation leans on it.
+
+### 3. Data model
+
+```
+gc:session       { id, startedAt, paused, spinCount, eventId, eventName }
+gc:prizes/{id}   { name, type, weight, quantity, remaining, description, order }
+gc:spins/{fp}    { prizeId, codeId, at }     write-once, one per device
+gc:log/{pushKey} { name, prizeId, prizeName, prizeType, time, fp, uid,
+                   entryMode, code, codePending, collected, collectedAt }
+gc:history/{key} ended-session archive (host-only)
+```
+
+Deliberately a *smaller* shape than giveaway prizes. Giveaway has four prize types; gacha has two, because Code and Physical are the only two that behave differently at handoff time. `generic` and `special` would have been distinctions without a difference here.
+
+`weight` is relative, not a percentage — percentages can't survive stock depletion without either re-editing every prize or silently not summing to 100. `gachaLiveOdds` derives the display percentage from weights across whatever is still drawable, so the numbers stay honest as the pool drains.
+
+### 4. Firebase rules (the part that must not be skipped)
+
+Two rules do real work; the rest are conventional.
+
+- **`gc:prizes/$prizeId/remaining`** accepts an unauthenticated write *only* as an exact minus-one step down from a positive number, and only while a session exists and is not paused. This is the direct analogue of `cd:session/claimedCount`'s +1-only rule, and it's what makes client-side stock decrements safe: an attendee cannot set stock arbitrarily, cannot increment it, and cannot take a unit that isn't there.
+- **`gc:spins/$fp`** is publicly readable *per child* and host-readable in aggregate, write-once, with the written `prizeId` validated against an existing prize. Same shape as `cd:claims/$fp`, and for the same reason — an attendee must be able to read their own record to be told "you already spun" without being able to enumerate everyone else's.
+
+An important consequence of the decrement-only rule: **an attendee cannot roll back stock.** That ruled out the obvious "reserve stock, then try to claim a code, then refund on failure" ordering, since the refund would be a forbidden increment. See section 5.
+
+### 5. The code-prize ordering problem
+
+Code prizes pull from the shared `cd:codes` pool, so a spin can touch two scarce resources: a unit of prize stock and a code. Both orderings have a failure mode:
+
+- Claim the code first, then take stock — if the stock take loses a race, the code is already marked claimed and (per the rules above) the attendee can't unclaim it. A code is silently burned.
+- Take stock first, then claim the code — if the code claim fails, the attendee has consumed a stock unit and gets nothing, which breaks the one promise the whole tool makes.
+
+The resolution is to take stock first and **never fail the spin**: if the code stash is dry, the win stands and degrades into a see-the-host handoff, flagged `codePending` so it shows on the host's queue as "needs a code from you." Nothing is lost, nothing is oversold, and the attendee's experience matches the promise. The host also gets an up-front warning on the setup screen when code-prize stock exceeds the number of unclaimed codes, so the degraded path stays rare.
+
+### 6. Concurrency
+
+`claimGachaStock` follows `claimCodeNode`'s contract exactly, **including its null-on-first-call caveat** — Firebase invokes the transaction update function with `current === null` before the client has a cached value, so it must return `null` (fetch and retry) rather than `undefined` (abort), or every spin from a fresh device would abort before the real stock number was ever read. That caveat is documented at length in `claimCodeNode` because it previously caused every claim to fail silently; it applies identically here.
+
+Losing a stock race is not an error path. The spin loop re-picks from the remaining prizes (up to 12 attempts, tracking what it has already tried), so a collision surfaces to the attendee as "you got something else." `registerGachaSpin` is transaction-guarded write-once, and a device that loses to its own concurrent tap is shown whatever was recorded rather than a second prize.
+
+### 7. Verification
+
+- All 9 `/predeliver` checks pass: zero raw `&&` (the whole file, not just new code), no raw `@` in JS, no `confirm()`, Babel pin and `data-presets` and the classic pragma intact, no `signInWithRedirect`, `APP_VERSION` bumped.
+- Full script block run through a real `@babel/preset-react` transform — parses clean. This is the check that catches the v2.14.2 class of bracket-mismatch bug that grep cannot see, and it matters more than usual here given the volume of new JSX.
+- **22-assertion Node simulation of the draw logic**, run against the actual functions extracted from the delivered file rather than a retyped copy: shape mapping and ordering, odds summing to exactly 100, sold-out prizes dropping out and the remainder re-normalising, zero-weight prizes never drawable, empty-pool returning null (which drives the "All out!" screen), `excludeIds` narrowing correctly, an empirical 200,000-draw distribution matching the configured weights within 0.7 points, and — the core promise — draining a full pool one unit at a time with every single unit awarded, no early null, and per-prize totals exactly matching configured quantities.
+
+### 8. Open items for Eric
+
+- **Publish the Firebase rules before pasting this into WordPress.** Nothing else in this delivery matters until that's done; every spin fails with `PERMISSION_DENIED` without it. This is the first delivery since Calendar Sync to require a rules change.
+- **Not yet clicked through live.** Verified statically and by simulation, not in a browser. Worth a dry run before an event: start a session, spin from a phone, refresh to confirm the same prize re-shows, confirm a physical handoff, and check a code prize actually pulls from the stash.
+- A spin counts toward the shared Passport milestone counter, same as a Code Drop claim. That was a judgment call for consistency — easy to remove if it inflates badges faster than intended.
+- Gacha deliberately has no rotating claim token (Code Drop's anti-screenshot measure). One-spin-per-device already bounds the exposure, and a static token-free URL is what lets one printed QR keep working across sessions. Revisit if screenshot-sharing turns out to matter.
+- The host's own screen-time question ("running three things at once") is now: one QR for attendees, one dashboard showing all three tools' live status, and per-tool screens for actions that genuinely need them. If that still feels like too much tab-switching in the field, the next lever is a combined live control strip rather than more consolidation of the tools themselves.
+
+### 9. File manifest (this session)
+
+- `event-tools.html` — `APP_VERSION` v2.17.0 → v2.18.0; gacha transaction helpers (`claimGachaStock`, `registerGachaSpin`) and pure logic (`gachaPrizesObjToArray`, `gachaLiveOdds`, `pickGachaPrize`); `GachaApp`, `GachaSession`, `GachaHistory`, `GachaSpin`; Gacha tile in `AttendeeHome`; status card in `EventDayDashboard`; `gc_spin` route and `gacha` host view in `App`; `gachaSpins` branch in `ActivityHistory`; gacha history in "Export everything"; `OptionalProfileSignInCard` copy extended for the gacha flow.
+- `firebase-database-rules.json` — new `gc:session`, `gc:prizes`, `gc:spins`, `gc:log`, `gc:history` rules.
+- `ggpogo-event-tools-CHANGELOG.md` — v2.18.0 entry.
+- `ggpogo-event-tools-engineering-breakdown.md` — this section (new).

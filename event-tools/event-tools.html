@@ -1,11 +1,29 @@
 <!--
-  v2.17.0 — Giveaway: add a prize mid-session
-  Hosts can now add a prize while a giveaway is live, without leaving the
-  drawing screen. An "Add prize" link next to "Drawing for" opens the
-  same prize form used during setup (type, name, description, quantity)
-  right there in the live session; the new prize appears in the picker
-  immediately since prizes are already tracked separately from the
-  session itself.
+  v2.18.0 — Gacha: a new spin-for-a-prize tool
+  A third tool alongside Code Drop and Giveaway, with its own session
+  (gc:session) so all three can run at the same meetup. Attendees scan,
+  enter a name, and spin once per device; every spin wins something, and
+  what they get is weighted by the host.
+  - Prize pool: each prize is either a Code (pulled from the shared Code
+    Drop stash and shown on the winner's phone) or Physical (pins,
+    stickers, code cards - the winner is told to see a host, who taps to
+    confirm the handoff on the live screen). Each has a quantity that
+    depletes and a relative weight; the setup screen shows what each
+    weight works out to as a real percentage, re-normalised as prizes
+    sell out.
+  - One spin per device per session, enforced the same way Code Drop
+    enforces one code per device (gc:spins/{fp}, read directly), so a
+    refresh re-shows the prize already won instead of granting another.
+  - Host live screen: QR, spin count, prizes left, a "hand these out"
+    queue for physical wins, a recent-spins feed, pause/resume, and end
+    with CSV-exportable history.
+  - The attendee landing page now shows a Gacha tile alongside Code Drop
+    and Giveaway whenever a session is live, so one QR pointed at the
+    plain Event Tools URL covers everything running.
+  REQUIRES A FIREBASE RULES UPDATE before this ships - see the companion
+  firebase-database-rules.json for the new gc:session, gc:prizes,
+  gc:spins, gc:log and gc:history paths. Without it every spin fails
+  with PERMISSION_DENIED.
   Full history: ggpogo-event-tools-CHANGELOG.md
 -->
 <div id="ggpogo-event-tools-root" style="min-height: 100vh; width: 100%;"></div>
@@ -682,6 +700,46 @@
     if (!result) return null;
     return result.snapshot;
   }
+
+  // ── GACHA (v2.18.0) ─────────────────────────────────────────────
+  // Take one unit of a gacha prize's stock via a transaction on that
+  // single node. Same contract as claimCodeNode, including its
+  // null-on-first-call caveat: Firebase invokes the update function with
+  // `current === null` before this client has a cached value for the path
+  // (the normal case for an attendee who has never read this node), so we
+  // must return null — "go fetch the server value and call me again" —
+  // rather than undefined, which aborts outright and would kill every
+  // spin from a fresh device before the real stock number was ever read.
+  //
+  // The matching security rule only permits an unauthenticated write to
+  // gc:prizes/$id/remaining as an exact minus-one step down from a
+  // positive number, so two attendees racing for the last unit of a prize
+  // resolve to one winner and one rejected transaction; the caller then
+  // re-picks from what is left rather than overselling.
+  async function claimGachaStock(prizeId) {
+    const result = await FB.transact(`gc:prizes/${prizeId}/remaining`, (current) => {
+      if (current === null) return null; // no cached value yet — let Firebase fetch and retry
+      if (typeof current !== "number") return; // malformed node — abort, caller re-picks
+      if (current <= 0) return; // real data shows this prize is gone — abort, caller re-picks
+      return current - 1;
+    });
+    if (!result) return { committed: false };
+    return { committed: result.committed, remaining: result.snapshot };
+  }
+
+  // Write-once record of what this device won, so a refresh re-shows the
+  // same prize instead of handing out a second spin. Transaction-guarded
+  // "only write if empty", same shape as registerClaim. codeId is stored
+  // alongside the prize id so a returning attendee's code can be looked
+  // up again from the publicly-readable cd:codes pool.
+  async function registerGachaSpin(fp, prizeId, codeId) {
+    const result = await FB.transact(`gc:spins/${fp}`, (current) => {
+      if (current) return; // this device already spun — abort
+      return { prizeId, codeId: codeId || null, at: Date.now() };
+    });
+    if (!result) return { committed: false };
+    return { committed: result.committed, value: result.snapshot };
+  }
   // Session log is stored as a push()-keyed object so attendees can
   // append an entry without write access to sibling entries.
   function logObjToArray(obj) {
@@ -719,6 +777,66 @@
       delivery: v.delivery || null,         // special only: "code" | "physical"
     }));
   }
+  // v2.18.0: gacha prizes. Deliberately a smaller shape than giveaway
+  // prizes — a gacha prize is either a code pulled from the shared
+  // cd:codes pool or something physical the host hands over, which are
+  // the only two delivery paths that actually differ. `weight` is a
+  // relative draw weight, not a percentage: every spin wins something, so
+  // a prize's real odds are just its share of the in-stock total, which
+  // is what gachaOdds computes and the setup screen displays.
+  function gachaPrizesObjToArray(obj) {
+    if (!obj) return [];
+    return Object.entries(obj).map(([id, v]) => ({
+      id, name: v.name,
+      type: v.type === "code" ? "code" : "physical",
+      weight: typeof v.weight === "number" ? v.weight : 1,
+      quantity: typeof v.quantity === "number" ? v.quantity : 0,
+      remaining: typeof v.remaining === "number" ? v.remaining : 0,
+      description: v.description || null,
+      order: typeof v.order === "number" ? v.order : 0,
+    })).sort((a, b) => a.order - b.order);
+  }
+
+  // Only in-stock, positively-weighted prizes can be drawn, so the odds
+  // re-normalise across whatever is left as stock depletes. Returns the
+  // per-prize percentage map plus the drawable set, so callers can show
+  // live odds and detect an exhausted pool from the same call.
+  function gachaLiveOdds(prizes) {
+    const live = prizes.filter(p => {
+      if (p.remaining <= 0) return false;
+      if (p.weight <= 0) return false;
+      return true;
+    });
+    const totalWeight = live.reduce((sum, p) => sum + p.weight, 0);
+    const pct = {};
+    if (totalWeight > 0) live.forEach(p => { pct[p.id] = (p.weight / totalWeight) * 100; });
+    return { pct, totalWeight, live };
+  }
+
+  // Weighted pick across what is still in stock. `excludeIds` lets a
+  // caller re-pick after losing a race for a prize's last unit without
+  // re-reading the whole pool. Returns null once nothing is drawable.
+  function pickGachaPrize(prizes, excludeIds) {
+    const skip = excludeIds || {};
+    const drawable = prizes.filter(p => {
+      if (skip[p.id]) return false;
+      if (p.remaining <= 0) return false;
+      if (p.weight <= 0) return false;
+      return true;
+    });
+    const totalWeight = drawable.reduce((sum, p) => sum + p.weight, 0);
+    if (totalWeight <= 0) return null;
+    let roll = Math.random() * totalWeight;
+    for (const p of drawable) {
+      roll -= p.weight;
+      if (roll < 0) return p;
+    }
+    // Floating-point drift only — the roll is strictly below totalWeight,
+    // so this is unreachable in practice; fall back to the last entry
+    // rather than returning null and reporting a false empty pool.
+    return drawable[drawable.length - 1];
+  }
+
   function entrantsObjToArray(obj) {
     if (!obj) return [];
     return Object.entries(obj).map(([id, v]) => ({
@@ -1107,6 +1225,9 @@
     const [entrantCount, setEntrantCount] = useState(0);
     const [ppSession, setPpSession] = useState(undefined);
     const [ppCheckInLog, setPpCheckInLog] = useState([]);
+    const [gcSession, setGcSession] = useState(undefined);
+    const [gcPrizes, setGcPrizes] = useState([]);
+    const [gcSpinCount, setGcSpinCount] = useState(0);
     const [lastCdSession, setLastCdSession] = useState(null); // most recent history entry
     const [lastGwSession, setLastGwSession] = useState(null);
     const [lastEvent, setLastEvent] = useState(null);
@@ -1136,6 +1257,9 @@
         FB.watch("gw:entrants", (val) => setEntrantCount(val ? Object.keys(val).length : 0)),
         FB.watch("pp:session", setPpSession),
         FB.watch("pp:checkInLog", (val) => setPpCheckInLog(val ? Object.values(val) : [])),
+        FB.watch("gc:session", setGcSession),
+        FB.watch("gc:prizes", (val) => setGcPrizes(gachaPrizesObjToArray(val))),
+        FB.watch("gc:log", (val) => setGcSpinCount(val ? Object.keys(val).length : 0)),
         FB.watch("cd:history", (val) => {
           if (!val) { setLastCdSession(null); setDashCodeMap(new Map()); return; }
           const entries = Object.values(val);
@@ -1154,7 +1278,7 @@
       return () => unwatchers.forEach(u => u());
     }, []);
 
-    const loading = cdSession === undefined || gwSession === undefined || ppSession === undefined;
+    const loading = cdSession === undefined || gwSession === undefined || ppSession === undefined || gcSession === undefined;
     const [exporting, setExporting] = useState(false);
 
     // Export everything: pulls all-time Code Drop history, Giveaway
@@ -1192,6 +1316,18 @@
           downloadCsv(`giveaway-history-all-${dateTag}.csv`, rows);
         }
 
+        // Gacha history -> CSV
+        const gcHistoryRaw = await FB.get("gc:history");
+        const gcHistory = gcHistoryRaw ? Object.values(gcHistoryRaw) : [];
+        if (gcHistory.length) {
+          const rows = [["Session Date", "Event", "Player", "Prize", "Type", "Code", "Handed over", "Time"]];
+          gcHistory.forEach(h => {
+            const dateLabel = new Date(h.startedAt).toLocaleDateString();
+            (h.spins || []).forEach(s => rows.push([dateLabel, h.eventName || "", s.name, s.prizeName, s.prizeType || "physical", s.code || "", s.collected ? "yes" : "no", new Date(s.time).toLocaleString()]));
+          });
+          downloadCsv(`gacha-history-all-${dateTag}.csv`, rows);
+        }
+
         // Meetup Stats (cached events + saved snapshots) -> JSON
         const statsCache = await FB.get("stats:cache");
         const snapshotsRaw = await FB.get("stats:snapshots");
@@ -1205,9 +1341,9 @@
           });
         }
 
-        const exportedAnything = cdHistory.length > 0 || gwHistory.length > 0 || !!statsCache || snapshots.length > 0;
+        const exportedAnything = cdHistory.length > 0 || gwHistory.length > 0 || gcHistory.length > 0 || !!statsCache || snapshots.length > 0;
         if (!exportedAnything) {
-          alert("No data to export yet — nothing has been saved in Code Drop, Giveaway, or Meetup Stats.");
+          alert("No data to export yet — nothing has been saved in Code Drop, Giveaway, Gacha, or Meetup Stats.");
         }
       } finally {
         setExporting(false);
@@ -1228,6 +1364,11 @@
     // Passport status
     const ppActive = !!ppSession;
     const ppCheckInCount = ppCheckInLog.length;
+
+    // Gacha status
+    const gcActive = !!gcSession;
+    const gcPaused = gcActive ? !!gcSession.paused : false;
+    const gcStock = gcPrizes.reduce((sum, p) => sum + p.remaining, 0);
 
     return (
       <div style={{ maxWidth: 460, margin: "0 auto" }}>
@@ -1300,6 +1441,36 @@
               </StickerBtn>
             </Paper>
 
+            {/* ─── Gacha status ─── */}
+            <Paper c={c} accent={c.sun} style={{ padding: "18px 20px" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <IconBox emoji="🎰" bg={c.sun + "33"} border={c.sunDeep} size={40} fontSize={20} />
+                  <div style={{ fontWeight: 700, fontSize: 18, color: c.ink }}>Gacha</div>
+                </div>
+                <StatusPill c={c} active={gcActive} paused={gcPaused} />
+              </div>
+              {gcActive ? (
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
+                  <div style={{ background: c.paperDim, borderRadius: 12, padding: "10px 14px" }}>
+                    <div style={{ fontSize: 11, color: c.inkMute, fontWeight: 700, letterSpacing: 0.5 }}>SPINS</div>
+                    <div style={{ fontSize: 24, fontWeight: 700, color: c.ink, lineHeight: 1.3 }}>{gcSpinCount}</div>
+                  </div>
+                  <div style={{ background: c.paperDim, borderRadius: 12, padding: "10px 14px" }}>
+                    <div style={{ fontSize: 11, color: c.inkMute, fontWeight: 700, letterSpacing: 0.5 }}>PRIZES LEFT</div>
+                    <div style={{ fontSize: 24, fontWeight: 700, color: c.ink, lineHeight: 1.3 }}>{gcStock}</div>
+                  </div>
+                </div>
+              ) : (
+                <div style={{ fontSize: 13, color: c.inkMute, marginBottom: 12 }}>
+                  {gcPrizes.length} prize type{gcPrizes.length !== 1 ? 's' : ''} ({gcStock} in stock)
+                </div>
+              )}
+              <StickerBtn fill={c.sun} shadow={c.sunDeep} onClick={() => setView("gacha")} style={{ width: "100%", color: c.ink, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+                {gcActive ? (<><Icon name="play" size={16} /> Open session</>) : (<><Icon name="star" size={16} /> Gacha</>)}
+              </StickerBtn>
+            </Paper>
+
             {/* ─── Passport status ─── */}
             <Paper c={c} accent={c.purple} style={{ padding: "18px 20px" }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
@@ -1355,7 +1526,7 @@
               <Icon name="download" size={15} /> {exporting ? "Exporting…" : "Export everything"}
             </StickerBtn>
             <div style={{ fontSize: 11, color: c.inkMute, textAlign: "center", lineHeight: 1.5, marginTop: -8 }}>
-              Downloads all Code Drop and Giveaway history, plus Meetup Stats snapshots, as separate files.
+              Downloads all Code Drop, Giveaway and Gacha history, plus Meetup Stats snapshots, as separate files.
             </div>
           </div>
         )}
@@ -1546,6 +1717,22 @@
             });
           }
         } catch (e) { reportIssue("activity:giveawayEntries", e); }
+        try {
+          const spins = await FB.get(`users/${authUser.uid}/activity/gachaSpins`);
+          if (spins) {
+            Object.entries(spins).forEach(([id, v]) => {
+              merged.push({
+                id, type: "gacha",
+                time: v.spunAt || v.recordedAt || 0,
+                code: v.code || null,
+                prizeName: v.prizeName || null,
+                prizeType: v.prizeType || "physical",
+                eventName: v.eventName || null,
+                displayName: v.displayName || null,
+              });
+            });
+          }
+        } catch (e) { reportIssue("activity:gachaSpins", e); }
         merged.sort((a, b) => b.time - a.time);
         setItems(merged);
         setLoading(false);
@@ -1609,16 +1796,21 @@
                     }}>
                       <div style={{
                         width: 36, height: 36, borderRadius: "50%", flexShrink: 0,
-                        background: item.type === "code" ? c.blue + "22" : c.orange + "22",
+                        background: item.type === "code" ? c.blue + "22" : item.type === "gacha" ? c.sun + "33" : c.orange + "22",
                         display: "flex", alignItems: "center", justifyContent: "center",
                         fontSize: 15, lineHeight: 1, overflow: "hidden", marginTop: 2,
                       }}>
-                        {item.type === "code" ? "🎟️" : "🎰"}
+                        {item.type === "code" ? "🎟️" : item.type === "gacha" ? "🎉" : "🎰"}
                       </div>
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ fontWeight: 700, fontSize: 14, color: c.ink, lineHeight: 1.3 }}>
-                          {item.type === "code" ? "Code Drop" : "Giveaway Entry"}
+                          {item.type === "code" ? "Code Drop" : item.type === "gacha" ? "Gacha" : "Giveaway Entry"}
                         </div>
+                        {item.type === "gacha" ? (
+                          <div style={{ fontSize: 12, color: c.sunDeep, fontWeight: 700, marginTop: 2 }}>
+                            Won {item.prizeName || "a prize"}
+                          </div>
+                        ) : null}
                         {isClaimedGiveaway ? (
                           <div style={{ fontSize: 12, color: c.blue, fontWeight: 700, marginTop: 2 }}>
                             Claimed {item.prizeName || "prize"} {"\u0040"} {new Date(item.claimedAt || item.time).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}
@@ -1639,6 +1831,11 @@
                             {item.reward ? <span style={{ display: "block", fontSize: 11, color: c.inkMute, fontWeight: 600, marginTop: 2 }}>{item.reward}</span> : null}
                           </div>
                         ) : null}
+                        {item.type === "gacha" ? (item.code ? (
+                          <div style={{ marginTop: 6, background: c.paperDim, borderRadius: 8, padding: "6px 10px", display: "inline-block" }}>
+                            <span style={{ fontFamily: "monospace", fontSize: 13, color: c.ink, fontWeight: 600, wordBreak: "break-all" }}>{item.code}</span>
+                          </div>
+                        ) : null) : null}
                         <div style={{ fontSize: 11, color: c.inkMute, marginTop: 4 }}>
                           {new Date(item.time).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}
                         </div>
@@ -1708,13 +1905,14 @@
   function OptionalProfileSignInCard({ c, authUser, authBusy, authError, onGoogleSignIn, onSignOut, flow, compact }) {
     const isSignedIn = !!authUser;
     const isChecking = authUser === undefined;
-    const flowLabel = flow === "code" ? "code claim" : "giveaway entry";
+    // v2.18.0: "gacha" joins "code" and the giveaway default here.
+    const flowLabel = flow === "code" ? "code claim" : flow === "gacha" ? "gacha prize" : "giveaway entry";
     // v2.14.4: button copy is claim/entry-specific instead of generic
     // badge language — a stranger scanning a Code Drop/Giveaway QR has
     // no context for "badge" (that's a Passport-page concept), but
     // understands what they just did (claimed a code / entered a
     // giveaway) and can see the benefit of saving that.
-    const signInLabel = flow === "code" ? "Sign in to save this claim" : "Sign in to save this entry";
+    const signInLabel = flow === "code" ? "Sign in to save this claim" : flow === "gacha" ? "Sign in to save this prize" : "Sign in to save this entry";
     const signedInName = authUser ? (authUser.displayName || "Trainer") : "";
 
     // Compact variant (v2.12.23): used on the simplified claim page where
@@ -1858,21 +2056,24 @@
     const [cdSession, setCdSession] = useState(undefined);
     const [gwSession, setGwSession] = useState(undefined);
     const [ppSession, setPpSession] = useState(undefined);
+    const [gcSession, setGcSession] = useState(undefined);
     const savedName = getSavedTrainerName();
 
     useEffect(() => {
       const u1 = FB.watch("cd:session", (val) => setCdSession(val || null));
       const u2 = FB.watch("gw:session", (val) => setGwSession(val || null));
       const u3 = FB.watch("pp:session", (val) => setPpSession(val || null));
-      return () => { u1(); u2(); u3(); };
+      const u4 = FB.watch("gc:session", (val) => setGcSession(val || null));
+      return () => { u1(); u2(); u3(); u4(); };
     }, []);
 
     const showCustomLogo = c.logoImage ? !logoFailed : c.logoImage;
-    const loading = cdSession === undefined || gwSession === undefined || ppSession === undefined;
+    const loading = cdSession === undefined || gwSession === undefined || ppSession === undefined || gcSession === undefined;
     const cdActive = !!cdSession;
     const gwActive = !!gwSession;
     const ppActive = !!ppSession;
-    const anyActive = cdActive || gwActive || ppActive;
+    const gcActive = !!gcSession;
+    const anyActive = cdActive || gwActive || ppActive || gcActive;
 
     // Campfire deep link built at runtime to avoid literal & in source
     const campfireUrl = useMemo(() => {
@@ -1997,6 +2198,20 @@
                           <div style={{ color: c.inkSoft, fontSize: 12, marginTop: 4 }}>Enter the raffle</div>
                         </div>
                         <div style={{ color: c.strawberry, fontSize: 24, fontWeight: 700 }}>›</div>
+                      </div>
+                    </Paper>
+                  </div>
+                ) : null}
+                {gcActive ? (
+                  <div onClick={() => { window.location.href = window.location.pathname + "?gc_spin=" + gcSession.id; }} style={{ cursor: "pointer" }}>
+                    <Paper c={c} accent={c.sun} style={{ padding: "16px 18px" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+                        <IconBox emoji="🎰" bg={c.sun + "33"} border={c.sunDeep} size={48} fontSize={22} />
+                        <div style={{ flex: 1, textAlign: "left" }}>
+                          <div style={{ fontWeight: 700, fontSize: 18, color: c.ink, lineHeight: 1 }}>Gacha</div>
+                          <div style={{ color: c.inkSoft, fontSize: 12, marginTop: 4 }}>{gcSession.paused ? "Paused for a moment" : "Spin for a prize"}</div>
+                        </div>
+                        <div style={{ color: c.sunDeep, fontSize: 24, fontWeight: 700 }}>›</div>
                       </div>
                     </Paper>
                   </div>
@@ -6543,6 +6758,877 @@
 
 
   // ───────────────────────────────────────────────────────────
+  // GACHA — HOST DASHBOARD (v2.18.0)
+  // Every spin wins something; the randomness is which prize, weighted
+  // by the host. One spin per device per session (gc:spins/{fp}), stock
+  // depletes as prizes are won, and its session lifecycle is its own
+  // (gc:session), so it runs alongside Code Drop and Giveaway rather
+  // than instead of them.
+  // ───────────────────────────────────────────────────────────
+  function GachaApp({ setView, c }) {
+    const [screen, setScreen] = useState("dashboard"); // dashboard | session | history
+    const [prizes, setPrizes] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [sessionActive, setSessionActive] = useState(null);
+    const [codes, setCodes] = useState([]);
+    // Add-prize form
+    const [newType, setNewType] = useState("physical"); // physical | code
+    const [newName, setNewName] = useState("");
+    const [newDesc, setNewDesc] = useState("");
+    const [newQty, setNewQty] = useState(10);
+    const [newWeight, setNewWeight] = useState(10);
+    const { confirmState, requestConfirm, handleCancel, handleConfirm } = useConfirm();
+
+    // Campfire event association, same pattern as Code Drop and Giveaway
+    const [cachedEvents, setCachedEvents] = useState([]);
+    const [selectedEventId, setSelectedEventId] = useState("");
+    const [selectedEventName, setSelectedEventName] = useState("");
+
+    useEffect(() => {
+      const u1 = FB.watch("gc:prizes", (val) => { setPrizes(gachaPrizesObjToArray(val)); setLoading(false); });
+      const u2 = FB.watch("cd:codes", (val) => setCodes(codesObjToArray(val)));
+      return () => { u1(); u2(); };
+    }, []);
+
+    useEffect(() => {
+      const unwatch = FB.watch("gc:session", (val) => {
+        const active = !!val;
+        setSessionActive(active);
+        if (active) { if (screen === "dashboard") setScreen("session"); }
+      });
+      return unwatch;
+    }, []);
+
+    useEffect(() => {
+      (async () => {
+        const cache = await FB.get("stats:cache");
+        if (cache ? cache.events : false) {
+          setCachedEvents(cache.events);
+          const closest = findClosestEvent(cache.events, Date.now());
+          if (closest) {
+            setSelectedEventId(closest.id);
+            setSelectedEventName(closest.name);
+          }
+        }
+      })();
+    }, []);
+
+    const addPrize = async () => {
+      const name = newName.trim();
+      if (!name) return;
+      const qty = Math.max(1, Number(newQty) || 1);
+      const weight = Math.max(1, Number(newWeight) || 1);
+      const id = genId();
+      const maxOrder = prizes.reduce((m, p) => Math.max(m, p.order), 0);
+      const prize = {
+        name, type: newType, weight, quantity: qty, remaining: qty,
+        order: maxOrder + 1,
+        description: newType === "physical" ? (newDesc.trim() || null) : null,
+      };
+      await FB.set(`gc:prizes/${id}`, prize);
+      setNewName("");
+      setNewDesc("");
+    };
+
+    const removePrize = (id, name) => {
+      requestConfirm(`Remove "${name}" from the gacha pool?`, async () => {
+        await FB.remove(`gc:prizes/${id}`);
+      });
+    };
+
+    const removeAllPrizes = () => {
+      requestConfirm("Clear the whole gacha pool? This can't be undone.", async () => {
+        await FB.set("gc:prizes", null);
+      });
+    };
+
+    // Restock without rebuilding the pool: resets every prize's remaining
+    // back to its configured quantity, for running the same pool at the
+    // next meetup.
+    const restockAll = () => {
+      requestConfirm("Refill every prize back to its full quantity?", async () => {
+        const updates = {};
+        prizes.forEach(p => { updates[`gc:prizes/${p.id}/remaining`] = p.quantity; });
+        if (Object.keys(updates).length) await FB.update(updates);
+      });
+    };
+
+    const startSession = async () => {
+      const existing = await FB.get("gc:session");
+      if (existing) { setScreen("session"); return; }
+      await FB.set("gc:session", {
+        id: genId(), startedAt: Date.now(), paused: false, spinCount: 0,
+        eventId: selectedEventId || null,
+        eventName: selectedEventName || null,
+      });
+      await FB.set("gc:spins", null);
+      await FB.set("gc:log", null);
+      setScreen("session");
+    };
+
+    if (loading) return <CenterMsg c={c} text="Loading…" />;
+    if (screen === "session") return <GachaSession c={c} prizes={prizes} onExit={() => setScreen("dashboard")} />;
+    if (screen === "history") return <GachaHistory c={c} onBack={() => setScreen("dashboard")} />;
+
+    const odds = gachaLiveOdds(prizes);
+    const totalStock = prizes.reduce((s, p) => s + p.remaining, 0);
+    const unusedCodes = codes.filter(x => !x.claimed ? !isExpired(x) : !x.claimed);
+    const codePrizeStock = prizes.filter(p => p.type === "code").reduce((s, p) => s + p.remaining, 0);
+    const codesShort = codePrizeStock > unusedCodes.length;
+
+    return (
+      <div style={{ maxWidth: 460, margin: "0 auto" }}>
+        <ConfirmModal confirmState={confirmState} onCancel={handleCancel} onConfirm={handleConfirm} />
+        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20 }}>
+          <BackButton c={c} onClick={() => setView("home")} />
+          <div style={{ flex: 1, fontWeight: 700, fontSize: 22, color: "#fff", textShadow: "0 2px 4px rgba(0,0,0,0.25)", lineHeight: 1.1 }}>Gacha</div>
+          <StickerBtn fill={c.paperDim} shadow={c.paperEdge} small onClick={() => setScreen("history")} style={{ color: c.ink, display: "inline-flex", alignItems: "center", gap: 6 }}>
+            <Icon name="list" size={13} /> History
+          </StickerBtn>
+        </div>
+
+        {sessionActive ? (
+          <Paper c={c} accent={c.grassMid} style={{ marginBottom: 16, textAlign: "center", padding: "18px 20px" }}>
+            <div style={{ fontWeight: 700, fontSize: 15, color: c.ink, marginBottom: 10 }}>A gacha session is live</div>
+            <StickerBtn fill={c.grassMid} shadow={c.grassDeep} small onClick={() => setScreen("session")}>Resume live session</StickerBtn>
+          </Paper>
+        ) : null}
+
+        {/* Pool summary + live odds */}
+        <Paper c={c} accent={c.sun} style={{ marginBottom: 16 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+            <div style={{ fontWeight: 700, fontSize: 15, color: c.ink }}>Prize pool</div>
+            <div style={{ fontSize: 12, color: c.inkMute, fontWeight: 700 }}>{totalStock} left</div>
+          </div>
+
+          {prizes.length === 0 ? (
+            <div style={{ textAlign: "center", color: c.inkMute, fontSize: 13, padding: "10px 0" }}>
+              No prizes yet. Add a few below, then start a session.
+            </div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {prizes.map(p => {
+                const tc = p.type === "code" ? c.purple : c.orange;
+                // Undefined for anything not currently drawable — sold
+                // out, or a zero weight that only a hand-edited database
+                // value could produce, since the form floors weight at 1.
+                const chance = odds.pct[p.id];
+                const soldOut = typeof chance !== "number";
+                return (
+                  <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", background: soldOut ? (c.paperEdge + "55") : c.paperDim, borderRadius: 10, opacity: soldOut ? 0.65 : 1 }}>
+                    <div style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 26, height: 26, borderRadius: 7, background: tc + "22", color: tc, flexShrink: 0 }}>
+                      <Icon name={p.type === "code" ? "code" : "gift"} size={13} />
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontWeight: 700, fontSize: 14, color: c.ink }}>{p.name}</div>
+                      <div style={{ fontSize: 11, color: c.inkMute, marginTop: 2, display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+                        <span style={{ background: tc + "22", color: tc, padding: "0px 6px", borderRadius: 5, fontWeight: 700, fontSize: 9, letterSpacing: 0.5, textTransform: "uppercase" }}>{p.type === "code" ? "Code" : "Physical"}</span>
+                        <span>{p.remaining} of {p.quantity} left</span>
+                        <span>weight {p.weight}</span>
+                      </div>
+                    </div>
+                    <div style={{ textAlign: "right", flexShrink: 0 }}>
+                      <div style={{ fontSize: 15, fontWeight: 700, color: soldOut ? c.inkMute : c.ink, lineHeight: 1 }}>
+                        {soldOut ? "—" : `${chance >= 10 ? Math.round(chance) : chance.toFixed(1)}%`}
+                      </div>
+                      <div style={{ fontSize: 9, color: c.inkMute, fontWeight: 700, letterSpacing: 0.5, marginTop: 2 }}>CHANCE</div>
+                    </div>
+                    <button onClick={() => removePrize(p.id, p.name)} style={{ background: "none", border: "none", color: c.inkMute, fontSize: 18, cursor: "pointer", padding: "0 2px", lineHeight: 1 }}>×</button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {prizes.length > 0 ? (
+            <>
+              <div style={{ fontSize: 11, color: c.inkMute, lineHeight: 1.5, marginTop: 10, padding: "8px 10px", background: c.paperDim, borderRadius: 8 }}>
+                Every spin wins something. Chances are each prize's share of the pool, and they shift as prizes sell out.
+              </div>
+              {codesShort ? (
+                <div style={{ fontSize: 11, color: c.strawDeep, fontWeight: 600, lineHeight: 1.5, marginTop: 8, padding: "8px 10px", background: c.strawberry + "1A", borderRadius: 8 }}>
+                  Heads up: {codePrizeStock} code prize{codePrizeStock !== 1 ? 's' : ''} in the pool but only {unusedCodes.length} unclaimed code{unusedCodes.length !== 1 ? 's' : ''} in the Code Drop stash. Add codes, or a winner will be sent to you to collect one by hand.
+                </div>
+              ) : null}
+              <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+                <StickerBtn fill={c.paperDim} shadow={c.paperEdge} small onClick={restockAll} style={{ color: c.ink, flex: 1, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+                  <Icon name="refresh" size={12} /> Refill all
+                </StickerBtn>
+                <StickerBtn fill={c.paperDim} shadow={c.paperEdge} small onClick={removeAllPrizes} style={{ color: c.strawDeep, flex: 1 }}>
+                  Clear pool
+                </StickerBtn>
+              </div>
+            </>
+          ) : null}
+        </Paper>
+
+        {/* Add prize */}
+        <Paper c={c} accent={c.purple} style={{ marginBottom: 16 }}>
+          <div style={{ fontWeight: 700, fontSize: 15, color: c.ink, marginBottom: 12 }}>Add prize</div>
+
+          <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
+            {["physical", "code"].map(t => (
+              <button key={t} onClick={() => setNewType(t)} style={{
+                flex: 1, padding: "8px 0", borderRadius: 10,
+                border: `2px solid ${newType === t ? (t === "code" ? c.purple : c.orange) : c.paperEdge}`,
+                background: newType === t ? (t === "code" ? c.purple : c.orange) : "#fff",
+                color: newType === t ? "#fff" : c.inkMute,
+                fontFamily: "Fredoka, sans-serif", fontWeight: 700, fontSize: 11, cursor: "pointer", textTransform: "uppercase", letterSpacing: 0.3
+              }}>{t === "code" ? "Code" : "Physical"}</button>
+            ))}
+          </div>
+
+          <div style={{ fontSize: 11, color: c.inkMute, marginBottom: 10, lineHeight: 1.5, padding: "6px 8px", background: c.paperDim, borderRadius: 8 }}>
+            {newType === "code" ? "Pulls a code from your Code Drop stash and shows it on the winner's phone right away." : "Pins, stickers, code cards — the winner is told to come see you, and you tap to confirm the handoff."}
+          </div>
+
+          <input value={newName} onChange={e => setNewName(e.target.value)} placeholder={
+            newType === "code" ? "Prize label (e.g. Raid Pass Code)" : "Prize name (e.g. Sticker)"
+          } style={{ marginBottom: 8 }} onKeyDown={e => { if (e.key === "Enter") addPrize(); }} maxLength={40} />
+
+          {newType === "physical" ? (
+            <textarea value={newDesc} onChange={e => setNewDesc(e.target.value)} placeholder="Description (optional)" rows={2} style={{ marginBottom: 8 }} />
+          ) : null}
+
+          <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 10, color: c.inkMute, fontWeight: 700, letterSpacing: 0.5, marginBottom: 4 }}>HOW MANY</div>
+              <input type="number" min={1} value={newQty} onChange={e => setNewQty(e.target.value)} placeholder="Qty" />
+            </div>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 10, color: c.inkMute, fontWeight: 700, letterSpacing: 0.5, marginBottom: 4 }}>WEIGHT</div>
+              <input type="number" min={1} value={newWeight} onChange={e => setNewWeight(e.target.value)} placeholder="Weight" />
+            </div>
+          </div>
+          <div style={{ fontSize: 11, color: c.inkMute, lineHeight: 1.5, marginBottom: 10 }}>
+            Weight is relative: a prize at 50 comes up five times as often as one at 10. The pool above shows what each works out to.
+          </div>
+
+          <StickerBtn fill={c.purple} shadow={c.purpleDeep} small onClick={addPrize} disabled={!newName.trim()} style={{ width: "100%", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+            <Icon name="add" size={13} /> Add to pool
+          </StickerBtn>
+        </Paper>
+
+        {/* Event association + start */}
+        {cachedEvents.length > 0 ? (
+          <Paper c={c} accent={c.blue} style={{ marginBottom: 16 }}>
+            <div style={{ fontWeight: 700, fontSize: 14, color: c.ink, marginBottom: 8 }}>Meetup</div>
+            <select value={selectedEventId} onChange={e => {
+              const ev = cachedEvents.find(x => x.id === e.target.value);
+              setSelectedEventId(e.target.value);
+              setSelectedEventName(ev ? ev.name : "");
+            }} style={{ width: "100%", boxSizing: "border-box" }}>
+              <option value="">No meetup</option>
+              {cachedEvents.map(ev => <option key={ev.id} value={ev.id}>{ev.name}</option>)}
+            </select>
+          </Paper>
+        ) : null}
+
+        <div style={{ textAlign: "center", marginBottom: 20 }}>
+          <StickerBtn fill={c.orange} shadow={c.orangeDeep} onClick={startSession} disabled={totalStock === 0} style={{ fontSize: 17, padding: "16px 36px", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+            <Icon name="play" size={16} /> START GACHA
+          </StickerBtn>
+          {totalStock === 0 ? <div style={{ marginTop: 10, fontSize: 12, color: c.strawberry, fontWeight: 700 }}>Add at least one prize with stock first.</div> : null}
+        </div>
+      </div>
+    );
+  }
+
+  // ───────────────────────────────────────────────────────────
+  // GACHA — LIVE SESSION (host view)
+  // ───────────────────────────────────────────────────────────
+  function GachaSession({ c, prizes, onExit }) {
+    const [session, setSession] = useState(null);
+    const [sessionLoaded, setSessionLoaded] = useState(false);
+    const [log, setLog] = useState([]);
+    const [link, setLink] = useState("");
+    const [fullscreen, setFullscreen] = useState(false);
+    const [ending, setEnding] = useState(false);
+    const [endError, setEndError] = useState("");
+    const { confirmState, requestConfirm, handleCancel, handleConfirm } = useConfirm();
+
+    useEffect(() => {
+      const u1 = FB.watch("gc:session", (val) => { setSession(val); setSessionLoaded(true); });
+      const u2 = FB.watch("gc:log", (val) => setLog(logObjToArray(val)));
+      return () => { u1(); u2(); };
+    }, []);
+
+    useEffect(() => {
+      if (session) setLink(`${window.location.origin}${window.location.pathname}?gc_spin=${session.id}`);
+    }, [session]);
+
+    if (!sessionLoaded) return <CenterMsg c={c} text="Loading gacha…" />;
+
+    if (!session) {
+      return (
+        <div style={{ maxWidth: 460, margin: "0 auto" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20 }}>
+            <BackButton c={c} onClick={onExit} />
+            <div style={{ fontWeight: 700, fontSize: 22, color: "#fff", textShadow: "0 2px 4px rgba(0,0,0,0.25)", lineHeight: 1.1 }}>Gacha</div>
+          </div>
+          <Paper c={c} style={{ textAlign: "center", padding: "28px 20px", color: c.inkMute }}>
+            <div style={{ fontSize: 15, fontWeight: 600, color: c.ink, marginBottom: 8 }}>No gacha is currently live</div>
+            <p style={{ fontSize: 13, lineHeight: 1.5 }}>This session may have ended already. Head back to start a new one.</p>
+          </Paper>
+        </div>
+      );
+    }
+
+    const totalStock = prizes.reduce((s, p) => s + p.remaining, 0);
+    const sorted = log.slice().sort((a, b) => (b.time || 0) - (a.time || 0));
+    // Physical prizes are handed over in person, so they stay on this
+    // list until the host taps to confirm. Code prizes land on the
+    // winner's phone directly and are recorded as collected on the spot.
+    const pending = sorted.filter(x => !x.collected);
+
+    const togglePause = async () => {
+      await FB.set("gc:session/paused", !session.paused);
+    };
+
+    const markCollected = async (key) => {
+      await FB.update({
+        [`gc:log/${key}/collected`]: true,
+        [`gc:log/${key}/collectedAt`]: Date.now(),
+      });
+    };
+
+    const doEndGacha = async () => {
+      setEnding(true);
+      setEndError("");
+      try {
+        const spins = logObjToArray(await FB.get("gc:log"));
+        const historyEntry = {
+          startedAt: session.startedAt,
+          endedAt: Date.now(),
+          spins: spins.map(({ key, ...rest }) => rest),
+          eventId: session.eventId || null,
+          eventName: session.eventName || null,
+        };
+        await FB.push("gc:history", historyEntry);
+        await FB.set("gc:session", null);
+        await FB.set("gc:spins", null);
+        await FB.set("gc:log", null);
+        onExit();
+      } catch (e) {
+        setEndError("Couldn't end gacha: " + (e ? (e.message ? e.message : String(e)) : String(e)));
+      } finally {
+        setEnding(false);
+      }
+    };
+
+    return (
+      <div style={{ maxWidth: 460, margin: "0 auto" }}>
+        <ConfirmModal confirmState={confirmState} onCancel={handleCancel} onConfirm={handleConfirm} />
+        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20 }}>
+          <BackButton c={c} onClick={onExit} />
+          <div style={{ flex: 1 }}>
+            <div style={{ fontWeight: 700, fontSize: 22, color: "#fff", textShadow: "0 2px 4px rgba(0,0,0,0.25)", lineHeight: 1.1 }}>Gacha</div>
+            <div style={{ fontSize: 13, color: session.paused ? c.sun : c.strawberry, fontWeight: 600, marginTop: 2 }}>
+              {session.paused ? "❙❙ PAUSED" : "● LIVE"}
+            </div>
+          </div>
+          <div style={{ background: "#fff", borderRadius: 10, padding: "6px 10px", border: `2px solid ${c.paperEdge}`, textAlign: "center" }} title="Session code — should match the code on attendees' screens">
+            <div style={{ fontSize: 9, color: c.inkMute, letterSpacing: 1, fontWeight: 700 }}>SESSION</div>
+            <div style={{ fontFamily: "monospace", fontSize: 14, fontWeight: 700, color: c.ink, letterSpacing: 2 }}>{sessionCode(session.id)}</div>
+          </div>
+        </div>
+
+        <Paper c={c} accent={c.sun} style={{ textAlign: "center", marginBottom: 16, padding: "24px 20px" }}>
+          <div style={{ display: "inline-block", background: c.sunDeep, color: "#fff", padding: "6px 16px", borderRadius: 10, border: "2px solid #fff", boxShadow: `0 0 0 1.5px ${c.sunDeep}, 0 2px 0 ${c.sunDeep}`, fontSize: 13, fontWeight: 700, letterSpacing: 1.5, marginBottom: 18 }}>
+            Scan to play
+          </div>
+          <div style={{ display: "flex", justifyContent: "center", marginBottom: 16 }}>
+            <div style={{ background: "#fff", padding: 12, borderRadius: 18, border: `3px solid ${c.paperEdge}` }}>
+              <QR data={link} size={fullscreen ? 240 : 180} />
+            </div>
+          </div>
+          <StickerBtn fill={c.paperDim} shadow={c.paperEdge} small onClick={() => setFullscreen(!fullscreen)} style={{ color: c.ink, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+            {fullscreen ? <><Icon name="collapse" size={13} /> Smaller</> : <><Icon name="expand" size={13} /> Bigger</>}
+          </StickerBtn>
+        </Paper>
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 16 }}>
+          <Paper c={c} style={{ padding: "12px", textAlign: "center" }}>
+            <div style={{ fontSize: 26, fontWeight: 700, color: c.ink, lineHeight: 1 }}>{log.length}</div>
+            <div style={{ fontSize: 10, color: c.inkMute, letterSpacing: 1, fontWeight: 700, marginTop: 4 }}>SPINS</div>
+          </Paper>
+          <Paper c={c} style={{ padding: "12px", textAlign: "center" }}>
+            <div style={{ fontSize: 26, fontWeight: 700, color: c.ink, lineHeight: 1 }}>{totalStock}</div>
+            <div style={{ fontSize: 10, color: c.inkMute, letterSpacing: 1, fontWeight: 700, marginTop: 4 }}>PRIZES LEFT</div>
+          </Paper>
+        </div>
+
+        {totalStock === 0 ? (
+          <Paper c={c} accent={c.strawberry} style={{ marginBottom: 16, textAlign: "center", padding: "16px 18px" }}>
+            <div style={{ fontWeight: 700, fontSize: 14, color: c.strawDeep }}>Everything's been won</div>
+            <div style={{ fontSize: 12, color: c.inkSoft, marginTop: 4, lineHeight: 1.5 }}>New spins will be told the machine is empty. End the session when you're done handing prizes out.</div>
+          </Paper>
+        ) : null}
+
+        {/* Hand these out */}
+        <Paper c={c} accent={c.orange} style={{ marginBottom: 16 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+            <div style={{ fontWeight: 700, fontSize: 15, color: c.ink }}>Hand these out</div>
+            <div style={{ fontSize: 12, color: c.inkMute, fontWeight: 700 }}>{pending.length}</div>
+          </div>
+          {pending.length === 0 ? (
+            <div style={{ textAlign: "center", color: c.inkMute, fontSize: 13, padding: "6px 0" }}>Nothing waiting. Physical prizes show up here when they're won.</div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {pending.map(x => (
+                <div key={x.key} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", background: c.orange + "14", borderRadius: 10, border: `2px solid ${c.orange}44` }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: 700, fontSize: 14, color: c.ink }}>{x.name}</div>
+                    <div style={{ fontSize: 11, color: c.inkSoft, marginTop: 2 }}>
+                      {x.prizeName}
+                      {x.codePending ? <span style={{ color: c.strawDeep, fontWeight: 700 }}> · needs a code from you</span> : null}
+                    </div>
+                  </div>
+                  <StickerBtn fill={c.grassMid} shadow={c.grassDeep} small onClick={() => markCollected(x.key)} style={{ display: "inline-flex", alignItems: "center", gap: 5, flexShrink: 0 }}>
+                    <Icon name="check" size={12} /> Done
+                  </StickerBtn>
+                </div>
+              ))}
+            </div>
+          )}
+        </Paper>
+
+        {/* Recent spins */}
+        {sorted.length > 0 ? (
+          <Paper c={c} accent={c.purple} style={{ marginBottom: 16 }}>
+            <div style={{ fontWeight: 700, fontSize: 15, color: c.ink, marginBottom: 10 }}>Recent spins</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {sorted.slice(0, 12).map(x => (
+                <div key={x.key} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", background: c.paperDim, borderRadius: 9 }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: c.ink }}>{x.name}</div>
+                    <div style={{ fontSize: 11, color: c.inkMute, marginTop: 1 }}>{x.prizeName}</div>
+                  </div>
+                  {x.collected ? <Icon name="check" size={13} style={{ color: c.grassDeep }} /> : null}
+                  <div style={{ fontSize: 10, color: c.inkMute, flexShrink: 0 }}>{new Date(x.time).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</div>
+                </div>
+              ))}
+            </div>
+          </Paper>
+        ) : null}
+
+        <div style={{ display: "flex", gap: 10, marginBottom: 20 }}>
+          <StickerBtn fill={session.paused ? c.grassMid : c.sun} shadow={session.paused ? c.grassDeep : c.sunDeep} onClick={togglePause} style={{ flex: 1, color: session.paused ? "#fff" : c.ink, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+            {session.paused ? <><Icon name="play" size={15} /> Resume</> : <><Icon name="pause" size={15} /> Pause</>}
+          </StickerBtn>
+          <StickerBtn fill={c.strawberry} shadow={c.strawDeep} onClick={() => requestConfirm("End this gacha? Spins reset so the same people could play again next time (prize stock stays as it is).", doEndGacha)} disabled={ending} style={{ flex: 1, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+            <Icon name="stop" size={15} /> {ending ? "Ending…" : "End gacha"}
+          </StickerBtn>
+        </div>
+        {endError ? <div style={{ fontSize: 12, color: c.strawDeep, fontWeight: 700, textAlign: "center", marginTop: -10, marginBottom: 16 }}>{endError}</div> : null}
+      </div>
+    );
+  }
+
+  // ───────────────────────────────────────────────────────────
+  // GACHA — PAST SESSIONS
+  // ───────────────────────────────────────────────────────────
+  function GachaHistory({ c, onBack }) {
+    const [history, setHistory] = useState([]);
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+      const unwatch = FB.watch("gc:history", (val) => {
+        const entries = val ? Object.entries(val).map(([id, v]) => ({ id, ...v })) : [];
+        entries.sort((a, b) => (b.startedAt || 0) - (a.startedAt || 0));
+        setHistory(entries);
+        setLoading(false);
+      });
+      return unwatch;
+    }, []);
+
+    const exportAll = () => {
+      const rows = [["Session Date", "Event", "Player", "Prize", "Type", "Code", "Handed over", "Time"]];
+      history.forEach(h => {
+        const dateLabel = new Date(h.startedAt).toLocaleDateString();
+        (h.spins || []).forEach(s => rows.push([
+          dateLabel, h.eventName || "", s.name, s.prizeName, s.prizeType || "physical",
+          s.code || "", s.collected ? "yes" : "no", new Date(s.time).toLocaleString(),
+        ]));
+      });
+      downloadCsv(`gacha-history-${new Date().toISOString().slice(0, 10)}.csv`, rows);
+    };
+
+    return (
+      <div style={{ maxWidth: 460, margin: "0 auto" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20 }}>
+          <BackButton c={c} onClick={onBack} />
+          <div style={{ flex: 1, fontWeight: 700, fontSize: 22, color: "#fff", textShadow: "0 2px 4px rgba(0,0,0,0.25)", lineHeight: 1.1 }}>Past gachas</div>
+        </div>
+
+        {loading ? <CenterMsg c={c} text="Loading…" /> : history.length === 0 ? (
+          <Paper c={c} style={{ textAlign: "center", padding: "28px 20px", color: c.inkMute }}>
+            <div style={{ fontSize: 14 }}>No gacha sessions have been run yet.</div>
+          </Paper>
+        ) : (
+          <>
+            <StickerBtn fill={c.paperDim} shadow={c.paperEdge} onClick={exportAll} style={{ color: c.ink, width: "100%", marginBottom: 16, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+              <Icon name="download" size={15} /> Export all as CSV
+            </StickerBtn>
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              {history.map(h => {
+                const spins = h.spins || [];
+                return (
+                  <Paper key={h.id} c={c} accent={c.sun}>
+                    <div style={{ fontWeight: 700, fontSize: 15, color: c.ink }}>
+                      {h.eventName || "Gacha session"}
+                    </div>
+                    <div style={{ fontSize: 12, color: c.inkMute, marginTop: 2, marginBottom: 10 }}>
+                      {new Date(h.startedAt).toLocaleDateString()} · {spins.length} spin{spins.length !== 1 ? 's' : ''}
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                      {spins.slice(0, 8).map((s, i) => (
+                        <div key={i} style={{ display: "flex", gap: 8, fontSize: 12, color: c.inkSoft, padding: "6px 8px", background: c.paperDim, borderRadius: 8 }}>
+                          <span style={{ fontWeight: 700, color: c.ink, flex: 1 }}>{s.name}</span>
+                          <span>{s.prizeName}</span>
+                        </div>
+                      ))}
+                      {spins.length > 8 ? <div style={{ fontSize: 11, color: c.inkMute, textAlign: "center", marginTop: 2 }}>+{spins.length - 8} more (in the CSV)</div> : null}
+                    </div>
+                  </Paper>
+                );
+              })}
+            </div>
+          </>
+        )}
+      </div>
+    );
+  }
+
+  // ───────────────────────────────────────────────────────────
+  // GACHA — ATTENDEE SPIN (public, one per device per session)
+  // ───────────────────────────────────────────────────────────
+  function GachaSpin({ c, sessionId, authUser, onGoogleSignIn, onSignOut, authBusy, authError }) {
+    const [stage, setStage] = useState("loading"); // loading | nosession | paused | empty | ready | spinning | reveal | error
+    const [name, setName] = useState(() => getSavedTrainerName());
+    const [prizes, setPrizes] = useState([]);
+    const [won, setWon] = useState(null);
+    const [reel, setReel] = useState("");
+    const fp = fingerprint();
+
+    // Turn a stored gc:spins record back into the reveal payload, so a
+    // refresh (or a second scan) shows the same prize instead of a fresh
+    // spin. Code values are looked up from cd:codes, which is publicly
+    // readable, the same way CodeClaim re-shows a claimed code.
+    const revealFromRecord = async (rec, prizeList) => {
+      const prize = prizeList.find(p => p.id === rec.prizeId);
+      let code = null;
+      let codeReward = null;
+      if (rec.codeId) {
+        const codeNode = await FB.get(`cd:codes/${rec.codeId}`);
+        if (codeNode) {
+          code = codeNode.value || null;
+          codeReward = codeNode.reward || null;
+        }
+      }
+      setWon({
+        prizeName: prize ? prize.name : "Your prize",
+        prizeType: prize ? prize.type : "physical",
+        description: prize ? prize.description : null,
+        code, codeReward,
+        codePending: prize ? (prize.type === "code" ? !rec.codeId : false) : false,
+      });
+      setStage("reveal");
+    };
+
+    const check = async () => {
+      const sess = await FB.get("gc:session");
+      if (!sess || sess.id !== sessionId) return setStage("nosession");
+      const prizeList = gachaPrizesObjToArray(await FB.get("gc:prizes"));
+      setPrizes(prizeList);
+      // Read this device's own spin record directly — gc:spins/$fp is
+      // publicly readable but the gc:spins parent is not, so reading the
+      // whole map would silently return null and hand out a second spin.
+      const mine = await FB.get(`gc:spins/${fp}`);
+      if (mine) return revealFromRecord(mine, prizeList);
+      if (sess.paused) return setStage("paused");
+      const anyLeft = prizeList.some(p => {
+        if (p.remaining <= 0) return false;
+        if (p.weight <= 0) return false;
+        return true;
+      });
+      if (!anyLeft) return setStage("empty");
+      setStage("ready");
+    };
+
+    useEffect(() => { check(); }, []);
+
+    useEffect(() => {
+      let alive = true;
+      const hasName = !!name.trim();
+      if (!authUser) return undefined;
+      if (hasName) return undefined;
+      (async () => {
+        const profileName = await loadSavedProfileTrainerName(authUser);
+        if (alive) { if (profileName) setName(profileName); }
+      })();
+      return () => { alive = false; };
+    }, [authUser ? authUser.uid : null]);
+
+    const spin = async () => {
+      const trimmed = name.trim();
+      const playerName = trimmed || (authUser ? "Signed-in Trainer" : "Anonymous");
+
+      const sess = await FB.get("gc:session");
+      if (!sess || sess.id !== sessionId) return setStage("nosession");
+      if (sess.paused) return setStage("paused");
+
+      const already = await FB.get(`gc:spins/${fp}`);
+      if (already) {
+        const freshList = gachaPrizesObjToArray(await FB.get("gc:prizes"));
+        return revealFromRecord(already, freshList);
+      }
+
+      setStage("spinning");
+      const spinStartedAt = Date.now();
+      const pool = gachaPrizesObjToArray(await FB.get("gc:prizes"));
+      setPrizes(pool);
+
+      // Reel animation runs while the real claim happens underneath, so
+      // the spin never shows a result the database hasn't committed.
+      const reelNames = pool.filter(p => p.remaining > 0).map(p => p.name);
+      let reelTick = 0;
+      const reelTimer = setInterval(() => {
+        if (reelNames.length === 0) return;
+        setReel(reelNames[reelTick % reelNames.length]);
+        reelTick++;
+      }, 90);
+      const finish = (fn) => {
+        // Always give the reel a moment to read as a spin, even when the
+        // writes come back almost instantly on a good connection.
+        const elapsed = Date.now() - spinStartedAt;
+        const wait = Math.max(0, 1500 - elapsed);
+        setTimeout(() => { clearInterval(reelTimer); fn(); }, wait);
+      };
+
+      // Take stock first — that's the scarce thing. Losing a race for a
+      // prize's last unit just means re-picking from what's left, so a
+      // collision reads as "you got something else", never an error.
+      const tried = {};
+      let claimed = null;
+      for (let attempt = 0; attempt < 12; attempt++) {
+        const pick = pickGachaPrize(pool, tried);
+        if (!pick) break;
+        const { committed } = await claimGachaStock(pick.id);
+        if (committed) { claimed = pick; break; }
+        tried[pick.id] = true;
+      }
+      if (!claimed) return finish(() => setStage("empty"));
+
+      // Code prizes pull from the shared Code Drop stash. If the stash is
+      // dry, the spin still stands — the prize becomes a see-the-host
+      // handoff flagged for the host as needing a code, rather than
+      // silently swallowing the stock unit that was already taken.
+      let codeId = null;
+      let codeValue = null;
+      let codeReward = null;
+      if (claimed.type === "code") {
+        const all = codesObjToArray(await FB.get("cd:codes"));
+        const candidates = all.filter(x => !x.claimed ? !isExpired(x) : !x.claimed).sort(byClaimPriority);
+        for (const candidate of candidates) {
+          const { committed } = await claimCodeNode(candidate.id, `${playerName} (gacha)`);
+          if (committed) {
+            codeId = candidate.id;
+            codeValue = candidate.value;
+            codeReward = candidate.reward || null;
+            break;
+          }
+        }
+      }
+      const codePending = claimed.type === "code" ? !codeId : false;
+
+      // Write-once record of this device's spin. If it loses to a
+      // concurrent tap from the same device, show whatever was recorded
+      // rather than a second prize.
+      const reg = await registerGachaSpin(fp, claimed.id, codeId);
+      if (!reg.committed) {
+        const recorded = await FB.get(`gc:spins/${fp}`);
+        if (recorded) {
+          const freshList = gachaPrizesObjToArray(await FB.get("gc:prizes"));
+          return finish(() => { revealFromRecord(recorded, freshList); });
+        }
+        return finish(() => setStage("error"));
+      }
+
+      await incrementCounter("gc:session/spinCount");
+
+      const spinTime = Date.now();
+      await FB.push("gc:log", {
+        name: playerName, prizeId: claimed.id, prizeName: claimed.name,
+        prizeType: claimed.type, time: spinTime, fp,
+        uid: authUser ? authUser.uid : null,
+        entryMode: authUser ? "signed_in" : "guest",
+        code: codeValue || null,
+        codePending,
+        // Code prizes land on the winner's phone, so they're settled the
+        // moment they're won. Anything the host hands over in person
+        // stays on their "hand these out" list until they confirm.
+        collected: claimed.type === "code" ? !codePending : false,
+        collectedAt: null,
+      });
+
+      await recordProfileActivity(authUser, "gachaSpins", {
+        sessionId, sessionCode: sessionCode(sessionId),
+        prizeId: claimed.id, prizeName: claimed.name, prizeType: claimed.type,
+        code: codeValue || null, displayName: playerName,
+        spunAt: spinTime, eventName: sess.eventName || null,
+      });
+
+      if (authUser) {
+        const count = await bumpPassportActivityCount(authUser.uid);
+        if (count != null) await awardPassportBadges(authUser.uid, sess, count);
+      }
+
+      if (trimmed) { saveTrainerName(trimmed); await rememberTrainerNameForProfile(authUser, trimmed); }
+
+      finish(() => {
+        setWon({
+          prizeName: claimed.name, prizeType: claimed.type,
+          description: claimed.description, code: codeValue,
+          codeReward, codePending,
+        });
+        setStage("reveal");
+      });
+    };
+
+    const wrap = (kids) => <div style={{ maxWidth: 400, margin: "0 auto", paddingTop: 20 }}>{kids}</div>;
+
+    if (stage === "loading") return <CenterMsg c={c} text="Loading…" />;
+
+    if (stage === "nosession") return wrap(
+      <Paper c={c} accent={c.strawberry} style={{ textAlign: "center", padding: "32px 24px" }}>
+        <IconBox emoji="✕" bg={c.strawberry + "33"} border={c.strawDeep} size={80} fontSize={36} />
+        <div style={{ height: 16 }} />
+        <Banner c={c} fill={c.strawberry}>Session not found</Banner>
+        <p style={{ marginTop: 14, color: c.inkSoft, fontSize: 14, lineHeight: 1.5 }}>This gacha has ended or doesn't exist. Ask the host to start a new one.</p>
+      </Paper>
+    );
+
+    if (stage === "paused") return wrap(
+      <Paper c={c} accent={c.sun} style={{ textAlign: "center", padding: "32px 24px" }}>
+        <IconBox emoji="⏸" bg={c.sun + "33"} border={c.sunDeep} size={80} fontSize={32} />
+        <div style={{ height: 16 }} />
+        <Banner c={c} fill={c.sunDeep}>Paused</Banner>
+        <p style={{ marginTop: 14, color: c.inkSoft, fontSize: 14, lineHeight: 1.5 }}>The host has paused the machine. Check back in a moment!</p>
+        <div style={{ marginTop: 20 }}><StickerBtn fill={c.blue} shadow={c.blueDeep} onClick={check}>Check again</StickerBtn></div>
+      </Paper>
+    );
+
+    if (stage === "empty") return wrap(
+      <Paper c={c} accent={c.strawberry} style={{ textAlign: "center", padding: "32px 24px" }}>
+        <IconBox emoji="🎰" bg={c.strawberry + "33"} border={c.strawDeep} size={80} fontSize={36} />
+        <div style={{ height: 16 }} />
+        <Banner c={c} fill={c.strawberry}>All out!</Banner>
+        <p style={{ marginTop: 14, color: c.inkSoft, fontSize: 14, lineHeight: 1.5 }}>Every prize in this machine has been won. Catch us at the next meetup!</p>
+      </Paper>
+    );
+
+    if (stage === "error") return wrap(
+      <Paper c={c} accent={c.strawberry} style={{ textAlign: "center", padding: "32px 24px" }}>
+        <IconBox emoji="⚠" bg={c.strawberry + "33"} border={c.strawDeep} size={80} fontSize={36} />
+        <div style={{ height: 16 }} />
+        <Banner c={c} fill={c.strawberry}>Something went wrong</Banner>
+        <p style={{ marginTop: 14, color: c.inkSoft, fontSize: 14, lineHeight: 1.5 }}>Your spin didn't save properly. Show this screen to a host.</p>
+      </Paper>
+    );
+
+    if (stage === "spinning") return wrap(
+      <Paper c={c} accent={c.sun} style={{ textAlign: "center", padding: "36px 24px" }}>
+        <div style={{ fontSize: 11, color: c.inkMute, letterSpacing: 2, fontWeight: 700, marginBottom: 14 }}>SPINNING…</div>
+        <div style={{
+          background: c.paperDim, borderRadius: 16, padding: "26px 16px",
+          border: `2.5px dashed ${c.paperEdge}`, minHeight: 40,
+          display: "flex", alignItems: "center", justifyContent: "center",
+          fontFamily: "Fredoka, sans-serif", fontSize: 20, fontWeight: 700, color: c.ink,
+          wordBreak: "break-word",
+        }}>
+          {reel || "…"}
+        </div>
+      </Paper>
+    );
+
+    if (stage === "reveal") return wrap(
+      <Paper c={c} accent={c.grassMid} style={{ textAlign: "center", padding: "28px 22px" }}>
+        <IconBox emoji="🎉" bg={c.grassMid + "33"} border={c.grassDeep} size={72} fontSize={32} />
+        <div style={{ height: 14 }} />
+        <div style={{ fontSize: 11, color: c.inkMute, letterSpacing: 2, fontWeight: 700, marginBottom: 8 }}>YOU GOT</div>
+        <div style={{ fontFamily: "Fredoka, sans-serif", fontSize: 24, fontWeight: 700, color: c.ink, lineHeight: 1.2, marginBottom: won.description ? 6 : 14 }}>
+          {won.prizeName}
+        </div>
+        {won.description ? <div style={{ fontSize: 13, color: c.inkSoft, lineHeight: 1.5, marginBottom: 14 }}>{won.description}</div> : null}
+
+        {won.code ? (
+          <>
+            <div style={{ background: c.paperDim, borderRadius: 18, padding: "18px 16px", marginBottom: 14 }}>
+              <div style={{ fontSize: 11, letterSpacing: 2, color: c.inkMute, fontWeight: 600, marginBottom: 8 }}>YOUR CODE</div>
+              <div style={{ fontFamily: "monospace", fontSize: 22, fontWeight: 700, color: c.ink, letterSpacing: 2, wordBreak: "break-all", lineHeight: 1.3, marginBottom: won.codeReward ? 8 : 0 }}>{won.code}</div>
+              {won.codeReward ? <div style={{ fontSize: 13, fontWeight: 700, color: c.grassDeep }}>{won.codeReward}</div> : null}
+            </div>
+            <a href={`https://store.pokemongo.com/offer-redemption?passcode=${encodeURIComponent(won.code)}`} target="_blank" rel="noopener noreferrer" style={{ textDecoration: "none", display: "block", marginBottom: 12 }}>
+              <StickerBtn fill={c.grassMid} shadow={c.grassDeep} style={{ width: "100%", fontSize: 16, padding: 14, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8 }}><Icon name="external" size={16} /> Redeem now</StickerBtn>
+            </a>
+            <div style={{ marginBottom: 14 }}>
+              <StickerBtn fill={c.blue} shadow={c.blueDeep} small onClick={() => navigator.clipboard.writeText(won.code)}>Copy code</StickerBtn>
+            </div>
+          </>
+        ) : (
+          <div style={{ background: c.orange + "1A", border: `2px solid ${c.orange}`, borderRadius: 14, padding: "14px 16px", marginBottom: 14 }}>
+            <div style={{ fontWeight: 700, fontSize: 14, color: c.ink, marginBottom: 4 }}>Show this screen to a host</div>
+            <div style={{ fontSize: 12, color: c.inkSoft, lineHeight: 1.5 }}>
+              {won.codePending ? "They'll sort out a code for you in person." : "They'll hand your prize over."}
+            </div>
+          </div>
+        )}
+
+        <div style={{ fontSize: 12, color: c.inkMute, lineHeight: 1.5, marginBottom: 14 }}>One spin per person — thanks for playing!</div>
+
+        <div style={{ borderTop: `1.5px dashed ${c.paperEdge}`, paddingTop: 12 }}>
+          <OptionalProfileSignInCard c={c} authUser={authUser} authBusy={authBusy} authError={authError} onGoogleSignIn={onGoogleSignIn} onSignOut={onSignOut} flow="gacha" compact />
+        </div>
+      </Paper>
+    );
+
+    // stage === "ready"
+    const canSpin = authUser ? true : !!name.trim();
+    const inStock = prizes.filter(p => p.remaining > 0);
+    return wrap(
+      <Paper c={c} accent={c.sun} style={{ textAlign: "center", padding: "28px 22px" }}>
+        <IconBox emoji="🎰" bg={c.sun + "33"} border={c.sunDeep} size={72} fontSize={32} />
+        <div style={{ height: 14 }} />
+        <h2 style={{ fontFamily: "Fredoka, sans-serif", fontSize: 21, fontWeight: 700, color: c.ink, marginBottom: 6 }}>One spin, one prize</h2>
+        <p style={{ fontSize: 13, color: c.inkSoft, lineHeight: 1.5, marginBottom: 16 }}>Everyone wins something. Let's see what you get.</p>
+
+        {inStock.length > 0 ? (
+          <div style={{ background: c.paperDim, borderRadius: 12, padding: "12px 14px", marginBottom: 16, textAlign: "left" }}>
+            <div style={{ fontSize: 10, color: c.inkMute, fontWeight: 700, letterSpacing: 1, marginBottom: 6 }}>IN THE MACHINE</div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+              {inStock.map(p => (
+                <span key={p.id} style={{ fontSize: 11, fontWeight: 700, color: c.inkSoft, background: "#fff", borderRadius: 7, padding: "4px 8px", border: `1.5px solid ${c.paperEdge}` }}>{p.name}</span>
+              ))}
+            </div>
+          </div>
+        ) : null}
+
+        <input value={name} onChange={e => setName(e.target.value)} onKeyDown={e => { if (e.key === "Enter") { if (canSpin) spin(); } }} placeholder="Your name" style={{ textAlign: "left", fontSize: 16, marginBottom: 4, width: "100%", boxSizing: "border-box" }} maxLength={32} />
+        <div style={{ fontSize: 11, color: c.inkMute, textAlign: "left", marginBottom: 14, lineHeight: 1.4 }}>So the host knows who to hand a prize to.</div>
+
+        <StickerBtn fill={c.orange} shadow={c.orangeDeep} onClick={spin} disabled={!canSpin} style={{ width: "100%", fontSize: 18, padding: 16, marginBottom: 16 }}>
+          SPIN
+        </StickerBtn>
+
+        <div style={{ borderTop: `1.5px dashed ${c.paperEdge}`, paddingTop: 14 }}>
+          <OptionalProfileSignInCard c={c} authUser={authUser} authBusy={authBusy} authError={authError} onGoogleSignIn={onGoogleSignIn} onSignOut={onSignOut} flow="gacha" compact />
+        </div>
+      </Paper>
+    );
+  }
+
+  // ───────────────────────────────────────────────────────────
   // PASSPORT — self check-in (geolocation-gated) + host session
   // controls + named-badge authoring + milestone/named badge
   // awarding. Independent session lifecycle from Code Drop and
@@ -7934,7 +9020,7 @@
   // Bump this with every release so the live page always shows what's
   // actually deployed — no more guessing whether a paste went through,
   // or which version is live when reporting a field issue.
-  const APP_VERSION = "v2.17.0";
+  const APP_VERSION = "v2.18.0";
 
   function VersionFooter() {
     return (
@@ -7965,6 +9051,7 @@
     const [claimSession, setClaimSession] = useState(null);
     const [claimToken, setClaimToken] = useState(null);
     const [joinSession, setJoinSession] = useState(null);
+    const [spinSession, setSpinSession] = useState(null);
     const [ppCheckinSession, setPpCheckinSession] = useState(null);
     const [publicPassportUid, setPublicPassportUid] = useState(null);
     const [bgFailed, setBgFailed] = useState(false);
@@ -7984,11 +9071,13 @@
       const params = new URLSearchParams(window.location.search);
       const claimId = params.get("cd_claim");
       const joinId = params.get("gw_join");
+      const spinId = params.get("gc_spin");
       const ppCheckinId = params.get("pp_checkin");
       const passportUid = params.get("passport");
       setClaimSession(claimId || null);
       setClaimToken(params.get("t") || null);
       setJoinSession(joinId || null);
+      setSpinSession(spinId || null);
       setPpCheckinSession(ppCheckinId || null);
       setPublicPassportUid(passportUid || null);
     }, []);
@@ -8107,6 +9196,12 @@
       return <div style={pageStyle}><GiveawayClaim c={c} sessionId={joinSession} authUser={authUser} onGoogleSignIn={startGoogleSignIn} onSignOut={signOutCommunity} authBusy={authBusy} authError={authError} /><DiagnosticsPanel enabled={showDiagnostics} /><VersionFooter /></div>;
     }
 
+    // Public gacha spin flow — guest-allowed like Code Drop/Giveaway,
+    // with the same optional Google sign-in offered alongside it.
+    if (spinSession) {
+      return <div style={pageStyle}><GachaSpin c={c} sessionId={spinSession} authUser={authUser} onGoogleSignIn={startGoogleSignIn} onSignOut={signOutCommunity} authBusy={authBusy} authError={authError} /><DiagnosticsPanel enabled={showDiagnostics} /><VersionFooter /></div>;
+    }
+
     // Public shareable passport view — no sign-in required to VIEW,
     // since it's read-only and only ever shows what its owner already
     // opted to make public (see PublicPassport / MyPassport's toggle).
@@ -8148,6 +9243,7 @@
     const showHome = view === "home";
     const showCodeDrop = view === "codedrop" ? isHost : false;
     const showGiveaway = view === "giveaway" ? isHost : false;
+    const showGacha = view === "gacha" ? isHost : false;
     const showBranding = view === "branding" ? isHost : false;
     const showStats = view === "stats" ? isHost : false;
     const showActivity = view === "activity" ? !!authUser : false;
@@ -8168,6 +9264,7 @@
         {showActivity ? <ActivityHistory setView={setView} c={c} authUser={authUser} /> : null}
         {showCodeDrop ? <CodeDropApp setView={setView} c={c} /> : null}
         {showGiveaway ? <GiveawayApp setView={setView} c={c} /> : null}
+        {showGacha ? <GachaApp setView={setView} c={c} /> : null}
         {showBranding ? <BrandingSettings c={c} setView={setView} /> : null}
         {showStats ? <MeetupStatsApp c={c} setView={setView} /> : null}
         {showPassport ? <PassportApp setView={setView} c={c} /> : null}

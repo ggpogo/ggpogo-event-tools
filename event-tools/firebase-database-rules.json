@@ -141,6 +141,42 @@
     "gw:templates": {
       ".read": "auth != null",
       ".write": "auth != null"
+    },
+    "gc:session": {
+      ".read": true,
+      ".write": "auth != null",
+      "spinCount": {
+        ".write": "auth != null || (root.child('gc:session/paused').val() != true && data.isNumber() && newData.val() == (data.val() + 1))"
+      }
+    },
+    "gc:prizes": {
+      ".read": true,
+      ".write": "auth != null",
+      "$prizeId": {
+        ".write": "auth != null",
+        "remaining": {
+          ".write": "auth != null || (root.child('gc:session').exists() && root.child('gc:session/paused').val() != true && data.isNumber() && data.val() > 0 && newData.val() == (data.val() - 1))"
+        }
+      }
+    },
+    "gc:spins": {
+      ".read": "auth != null",
+      ".write": "auth != null",
+      "$fp": {
+        ".read": true,
+        ".write": "auth != null || (!data.exists() && newData.hasChildren(['prizeId','at']) && newData.child('prizeId').isString() && newData.child('at').isNumber() && root.child('gc:prizes').child(newData.child('prizeId').val()).exists())"
+      }
+    },
+    "gc:log": {
+      ".read": "auth != null",
+      ".write": "auth != null",
+      "$index": {
+        ".write": "auth != null || (!data.exists() && newData.hasChildren(['name','prizeId','prizeName','time','fp']) && newData.child('name').isString() && newData.child('prizeId').isString() && newData.child('prizeName').isString() && newData.child('time').isNumber() && newData.child('fp').isString())"
+      }
+    },
+    "gc:history": {
+      ".read": "auth != null",
+      ".write": "auth != null"
     }
   }
 }
