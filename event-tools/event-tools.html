@@ -1,26 +1,40 @@
 <!--
-  v2.18.1 — critical fix: signed-out visitors saw a landing page stuck
-  on "Checking for active events…"
-  AttendeeHome waits for four session watchers (Code Drop, Giveaway,
-  Gacha, Passport) before it will render tiles. pp:session was readable
-  only by signed-in users, so a guest's listener was denied — and
-  FB.watch, on an error, reported the issue and then never called its
-  callback at all, leaving that fourth watcher permanently unresolved
-  and the page permanently loading. Two fixes, either of which would
-  have been enough on its own:
-  - FB.watch now resolves a failed listen as null instead of hanging, so
-    no single unreadable path can freeze a screen again.
-  - pp:session is now publicly readable, matching cd:session/gw:session/
-    gc:session, so guests actually see the Passport tile when check-in
-    is live. It holds the meetup name and check-in location, the same
-    class of data gw:session already publishes.
-  Pre-existing since Passport shipped, but only reachable via the plain
-  /event-tools/ URL — per-tool QR links deep-link past this screen — so
-  it surfaced the moment v2.18.0's one-QR-for-everything flow started
-  sending people to the landing page.
-  REQUIRES A FIREBASE RULES UPDATE (the pp:session read change above)
-  alongside this file.
-
+  v2.19.0 — correctness pass across every attendee screen
+  A full audit of what an attendee can reach, then fixes. No structural
+  change: the landing page rework and shared navigation come next.
+  - Code Drop is no longer listed on the attendee landing page. That tile
+    linked to the claim page WITH the session's live claim token
+    attached, so anyone opening the plain Event Tools URL during a Code
+    Drop could take a code with no host involvement, defeating both the
+    rotating token and the host's control of distribution. Code Drop is
+    now reachable only by the QR a host presents.
+  - A giveaway winner no longer loses their prize (or their redemption
+    code) by reloading after the host ends the session. Ending a giveaway
+    deletes every entrant record, so the win is now also kept on the
+    winner's own device, keyed to that session, and re-shown afterwards.
+  - Dismissing the guest banner no longer permanently removes the only
+    remaining way to sign in on that device.
+  - Gacha's error screen now names the prize, the player and the session
+    code (stock is already spent by then, so a host needs something to
+    settle it by hand) and offers a retry. Running out mid-spin now says
+    what actually happened instead of contradicting "everyone wins", and
+    both empty states offer Check again since hosts can restock.
+  - Passport check-in tells a failed GPS fix apart from a denied
+    permission, so the ordinary park-under-trees case stops telling
+    people to fix a setting that was never the problem. Distance and
+    status now sit permanently under the button instead of behind a tap,
+    with a retry when the fix failed.
+  - Milestone badges are stamps, not check-ins. The counter behind them
+    is fed by code claims and gacha spins too, so a passport could show
+    "0 check-ins" above a lit-up "5 check-ins" badge.
+  - My Activity now includes check-ins, which it was titled after and
+    never showed, and the Giveaway/Gacha icons are no longer swapped.
+  - All four attendee copy buttons confirm the copy, and handle the
+    clipboard rejecting (older iOS Safari, non-secure contexts) instead
+    of failing silently while looking like they worked.
+  - Gacha's code reveal carries the same wrong-account warning Code Drop
+    and the Giveaway already had.
+  No Firebase rules change in this release.
   Full history: ggpogo-event-tools-CHANGELOG.md
 -->
 <div id="ggpogo-event-tools-root" style="min-height: 100vh; width: 100%;"></div>
@@ -401,6 +415,34 @@
     try {
       if (name) { localStorage.setItem(TRAINER_NAME_KEY, name); } else { localStorage.removeItem(TRAINER_NAME_KEY); }
     } catch (e) { /* ignore — private browsing or storage disabled */ }
+  }
+
+  // v2.19.0: a winner's own copy of what they won, kept on their device.
+  //
+  // Ending a giveaway wipes gw:entrants outright, so once the host taps
+  // End the winner's record — including the redemption code for a code
+  // prize — no longer exists anywhere the attendee can read. Before this,
+  // a winner who backgrounded their phone and came back to a reloaded
+  // page got "Giveaway not found" and lost the code entirely; the only
+  // recovery was asking the host to dig it out of the history CSV.
+  //
+  // Keyed by session id so a stale win from last week's giveaway can
+  // never be mistaken for this week's.
+  const WON_PRIZE_KEY = "ggpogo_won_prize";
+  function stashWonPrize(sessionId, prize) {
+    if (!sessionId || !prize) return;
+    try { localStorage.setItem(WON_PRIZE_KEY, JSON.stringify({ sessionId, prize, at: Date.now() })); }
+    catch (e) { /* ignore — private browsing or storage disabled */ }
+  }
+  function readStashedWonPrize(sessionId) {
+    try {
+      const raw = localStorage.getItem(WON_PRIZE_KEY);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      if (!parsed) return null;
+      if (parsed.sessionId !== sessionId) return null;
+      return parsed.prize || null;
+    } catch (e) { return null; }
   }
 
   // ───────────────────────────────────────────────────────────
@@ -1130,6 +1172,53 @@
     );
   }
 
+  // v2.19.0: one copy button for every attendee-facing "copy your code"
+  // control. All four of them previously called navigator.clipboard
+  // directly with no success state and no catch, so a tap produced no
+  // visible change at all — and navigator.clipboard genuinely rejects on
+  // older iOS Safari and outside a secure context, meaning someone could
+  // walk away believing they had their prize code when the clipboard was
+  // untouched. Success flips the label for two seconds; failure says so
+  // and tells them what to do instead, rather than staying silent.
+  function CopyButton({ c, value, label = "Copy", copiedLabel = "Copied!", fill, shadow, small = true, style = {} }) {
+    const [state, setState] = useState("idle"); // idle | copied | failed
+    const timerRef = useRef(null);
+    useEffect(() => () => { if (timerRef.current) clearTimeout(timerRef.current); }, []);
+    const flash = (next) => {
+      setState(next);
+      if (timerRef.current) clearTimeout(timerRef.current);
+      timerRef.current = setTimeout(() => setState("idle"), next === "copied" ? 2000 : 4000);
+    };
+    const doCopy = async () => {
+      if (!value) return;
+      try {
+        if (!navigator.clipboard) throw new Error("clipboard unavailable");
+        await navigator.clipboard.writeText(value);
+        flash("copied");
+      } catch (e) {
+        reportIssue("copy", e);
+        flash("failed");
+      }
+    };
+    const currentFill = state === "copied" ? c.grassMid : state === "failed" ? c.paperDim : fill;
+    const currentShadow = state === "copied" ? c.grassDeep : state === "failed" ? c.paperEdge : shadow;
+    return (
+      <>
+        <StickerBtn
+          fill={currentFill} shadow={currentShadow} small={small} onClick={doCopy}
+          style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6, ...(state === "failed" ? { color: c.ink } : {}), ...style }}
+        >
+          {state === "copied" ? <><Icon name="check" size={13} /> {copiedLabel}</> : state === "failed" ? "Couldn't copy" : label}
+        </StickerBtn>
+        {state === "failed" ? (
+          <div style={{ fontSize: 11, color: c.strawDeep, fontWeight: 600, marginTop: 6, lineHeight: 1.4 }}>
+            Press and hold the code above to copy it by hand.
+          </div>
+        ) : null}
+      </>
+    );
+  }
+
   function Paper({ children, style = {}, accent, c }) {
     return (
       <div style={{
@@ -1654,7 +1743,22 @@
   // ───────────────────────────────────────────────────────────
   function GuestBanner({ c, onSignIn }) {
     const [dismissed, setDismissed] = useState(isGuestBannerDismissed);
-    if (dismissed) return null;
+    // v2.19.0: dismissing this used to render nothing at all — and since
+    // the full sign-in chooser is hidden once someone is in guest mode,
+    // that single tap on a tiny × permanently removed the only remaining
+    // way to sign in on that device. Dismissing now silences the pitch
+    // but keeps one quiet way back in.
+    if (dismissed) {
+      return (
+        <div style={{ textAlign: "center", marginBottom: 14 }}>
+          <button onClick={onSignIn} style={{
+            background: "none", border: "none", padding: 0, cursor: "pointer",
+            fontFamily: "Fredoka, sans-serif", fontWeight: 600, fontSize: 12,
+            color: c.blue, textDecoration: "underline",
+          }}>Sign in with Google</button>
+        </div>
+      );
+    }
     return (
       <div style={{
         background: c.sun + "22", border: `2px solid ${c.sun}`, borderRadius: 14,
@@ -1738,6 +1842,23 @@
             });
           }
         } catch (e) { reportIssue("activity:gachaSpins", e); }
+        // v2.19.0: check-ins live under passport/checkIns rather than
+        // activity/*, and were never read here — so this screen, titled
+        // "Check-in History", could show someone who had checked in at
+        // five meetups a cheerful "No activity yet".
+        try {
+          const checkIns = await FB.get(`users/${authUser.uid}/passport/checkIns`);
+          if (checkIns) {
+            Object.entries(checkIns).forEach(([id, v]) => {
+              merged.push({
+                id, type: "checkin",
+                time: v.timestamp || 0,
+                eventName: v.eventName || null,
+                method: v.method || null,
+              });
+            });
+          }
+        } catch (e) { reportIssue("activity:checkIns", e); }
         merged.sort((a, b) => b.time - a.time);
         setItems(merged);
         setLoading(false);
@@ -1766,7 +1887,7 @@
           <BackButton c={c} onClick={() => setView("home")} />
           <div style={{ flex: 1 }}>
             <div style={{ fontWeight: 700, fontSize: 22, color: "#fff", textShadow: "0 2px 4px rgba(0,0,0,0.25)", lineHeight: 1.1 }}>My Activity</div>
-            <div style={{ fontSize: 13, color: c.blue, fontWeight: 600, marginTop: 2 }}>Check-in History</div>
+            <div style={{ fontSize: 13, color: c.blue, fontWeight: 600, marginTop: 2 }}>Everything you've done at our meetups</div>
           </div>
         </div>
 
@@ -1775,7 +1896,7 @@
             <div style={{ fontSize: 28, lineHeight: 1, marginBottom: 12 }}>📋</div>
             <div style={{ fontWeight: 700, fontSize: 16, color: c.ink, marginBottom: 6 }}>No activity yet</div>
             <div style={{ fontSize: 13, color: c.inkSoft, lineHeight: 1.5 }}>
-              Claim a code or enter a giveaway at a meetup to get started!
+              Check in, claim a code, enter a giveaway or spin the gacha at a meetup and it'll show up here.
             </div>
           </Paper>
         ) : (
@@ -1801,15 +1922,23 @@
                     }}>
                       <div style={{
                         width: 36, height: 36, borderRadius: "50%", flexShrink: 0,
-                        background: item.type === "code" ? c.blue + "22" : item.type === "gacha" ? c.sun + "33" : c.orange + "22",
+                        // v2.19.0: colours now match each tool's own
+                        // accent elsewhere in the app (Code Drop blue,
+                        // Gacha sun, Giveaway strawberry, check-in
+                        // purple) rather than giving Giveaway orange.
+                        background: item.type === "code" ? c.blue + "22" : item.type === "gacha" ? c.sun + "33" : item.type === "checkin" ? c.purple + "22" : c.strawberry + "22",
                         display: "flex", alignItems: "center", justifyContent: "center",
                         fontSize: 15, lineHeight: 1, overflow: "hidden", marginTop: 2,
                       }}>
-                        {item.type === "code" ? "🎟️" : item.type === "gacha" ? "🎉" : "🎰"}
+                        {/* v2.19.0: these were swapped — a giveaway entry
+                            was stamped with the Gacha slot machine (the
+                            app's Gacha icon everywhere else) and a gacha
+                            spin got a party popper. */}
+                        {item.type === "code" ? "📦" : item.type === "gacha" ? "🎰" : item.type === "checkin" ? "🎫" : "🎁"}
                       </div>
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ fontWeight: 700, fontSize: 14, color: c.ink, lineHeight: 1.3 }}>
-                          {item.type === "code" ? "Code Drop" : item.type === "gacha" ? "Gacha" : "Giveaway Entry"}
+                          {item.type === "code" ? "Code Drop" : item.type === "gacha" ? "Gacha" : item.type === "checkin" ? "Checked in" : "Giveaway Entry"}
                         </div>
                         {item.type === "gacha" ? (
                           <div style={{ fontSize: 12, color: c.sunDeep, fontWeight: 700, marginTop: 2 }}>
@@ -2058,27 +2187,29 @@
   // When nothing is active, shows a community landing with social links.
   function AttendeeHome({ setView, c, authUser, communityMode, onGoogleSignIn, onGuestMode, onSignOut, authBusy, authError, profileTrainerName }) {
     const [logoFailed, setLogoFailed] = useState(false);
-    const [cdSession, setCdSession] = useState(undefined);
     const [gwSession, setGwSession] = useState(undefined);
     const [ppSession, setPpSession] = useState(undefined);
     const [gcSession, setGcSession] = useState(undefined);
     const savedName = getSavedTrainerName();
 
+    // v2.19.0: cd:session is deliberately not watched here any more.
+    // Code Drop is host-presented (QR only), so this screen neither
+    // lists it nor counts it towards "something is happening" — a live
+    // Code Drop on its own must not light this page up with a heading
+    // and then no tiles beneath it.
     useEffect(() => {
-      const u1 = FB.watch("cd:session", (val) => setCdSession(val || null));
-      const u2 = FB.watch("gw:session", (val) => setGwSession(val || null));
-      const u3 = FB.watch("pp:session", (val) => setPpSession(val || null));
-      const u4 = FB.watch("gc:session", (val) => setGcSession(val || null));
-      return () => { u1(); u2(); u3(); u4(); };
+      const u1 = FB.watch("gw:session", (val) => setGwSession(val || null));
+      const u2 = FB.watch("pp:session", (val) => setPpSession(val || null));
+      const u3 = FB.watch("gc:session", (val) => setGcSession(val || null));
+      return () => { u1(); u2(); u3(); };
     }, []);
 
     const showCustomLogo = c.logoImage ? !logoFailed : c.logoImage;
-    const loading = cdSession === undefined || gwSession === undefined || ppSession === undefined || gcSession === undefined;
-    const cdActive = !!cdSession;
+    const loading = gwSession === undefined || ppSession === undefined || gcSession === undefined;
     const gwActive = !!gwSession;
     const ppActive = !!ppSession;
     const gcActive = !!gcSession;
-    const anyActive = cdActive || gwActive || ppActive || gcActive;
+    const anyActive = gwActive || ppActive || gcActive;
 
     // Campfire deep link built at runtime to avoid literal & in source
     const campfireUrl = useMemo(() => {
@@ -2174,25 +2305,18 @@
             <>
               <p style={{ color: c.inkSoft, fontSize: 13, marginBottom: 18 }}>There's an event happening now</p>
               <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                {cdActive ? (
-                  <div onClick={() => {
-                    const params = new URLSearchParams();
-                    params.set("cd_claim", cdSession.id);
-                    if (cdSession.claimToken) params.set("t", cdSession.claimToken);
-                    window.location.href = window.location.pathname + "?" + params.toString();
-                  }} style={{ cursor: "pointer" }}>
-                    <Paper c={c} accent={c.blue} style={{ padding: "16px 18px" }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-                        <IconBox emoji="📦" bg={c.blue + "33"} border={c.blueDeep} size={48} fontSize={22} />
-                        <div style={{ flex: 1, textAlign: "left" }}>
-                          <div style={{ fontWeight: 700, fontSize: 18, color: c.ink, lineHeight: 1 }}>Code Drop</div>
-                          <div style={{ color: c.inkSoft, fontSize: 12, marginTop: 4 }}>Claim your code</div>
-                        </div>
-                        <div style={{ color: c.blue, fontSize: 24, fontWeight: 700 }}>›</div>
-                      </div>
-                    </Paper>
-                  </div>
-                ) : null}
+                {/* v2.19.0: Code Drop is deliberately NOT listed here.
+                    This tile used to link straight to the claim page WITH
+                    the session's current claim token attached, so anyone
+                    who opened the plain Event Tools URL during a live
+                    Code Drop could take a code with no host involvement —
+                    which defeats the whole point of the rotating claim
+                    token, and defeats the host's control over who gets a
+                    code and when. Code Drop is now reachable only by
+                    scanning the QR the host physically presents. It is
+                    not advertised here at all: showing a tile people
+                    cannot use themselves would recreate the "what do I do
+                    now" confusion this screen exists to remove. */}
                 {gwActive ? (
                   <div onClick={() => { window.location.href = window.location.pathname + "?gw_join=" + gwSession.id; }} style={{ cursor: "pointer" }}>
                     <Paper c={c} accent={c.strawberry} style={{ padding: "16px 18px" }}>
@@ -3490,7 +3614,7 @@
               ) : null}
 
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 14 }}>
-                <StickerBtn fill={c.blue} shadow={c.blueDeep} small onClick={() => navigator.clipboard.writeText(manualCode)}>Copy code</StickerBtn>
+                <CopyButton c={c} value={manualCode} label="Copy code" fill={c.blue} shadow={c.blueDeep} />
                 <StickerBtn fill={c.purple} shadow={c.purpleDeep} small onClick={() => { if (navigator.share) navigator.share({ title: "Code", text: manualCode }); }}>Share</StickerBtn>
               </div>
 
@@ -3834,7 +3958,7 @@
         </a>
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 16 }}>
-          <StickerBtn fill={c.blue} shadow={c.blueDeep} small onClick={() => navigator.clipboard.writeText(myCode)}>Copy</StickerBtn>
+          <CopyButton c={c} value={myCode} label="Copy" fill={c.blue} shadow={c.blueDeep} />
           <StickerBtn fill={c.purple} shadow={c.purpleDeep} small onClick={() => { if (navigator.share) navigator.share({ title: "Pokémon GO code", text: myCode }); }}>Share</StickerBtn>
         </div>
 
@@ -3951,12 +4075,31 @@
     // push infrastructure required — just a Firebase watch the host
     // already has open.
     const [onMyWaySent, setOnMyWaySent] = useState(false);
+    // v2.19.0: true when we're showing a win recovered from this device
+    // after the host already ended the giveaway. The prize still stands —
+    // the host hands it over from their own history — but anything that
+    // writes back to the live session has nothing to write to.
+    const [sessionEnded, setSessionEnded] = useState(false);
     const fp = fingerprint();
     const myEntrantIdRef = useRef(null);
 
     const check = async () => {
       const sess = await FB.get("gw:session");
-      if (!sess || sess.id !== sessionId) return setStage("nosession");
+      if (!sess || sess.id !== sessionId) {
+        // v2.19.0: the session is gone, but this device may still hold
+        // its own copy of a win from it. Ending a giveaway deletes every
+        // entrant record, so without this the winner would be shown
+        // "Giveaway not found" and lose their prize — and, for a code
+        // prize, the code itself. Show the win instead, flagged as
+        // finished so the live-only controls stay hidden.
+        const stashed = readStashedWonPrize(sessionId);
+        if (stashed) {
+          setWonPrize(stashed);
+          setSessionEnded(true);
+          return setStage("won");
+        }
+        return setStage("nosession");
+      }
       setSessionInfo(sess);
       const entrants = entrantsObjToArray(await FB.get("gw:entrants"));
       const mine = entrants.find(e => e.fp === fp);
@@ -3968,6 +4111,7 @@
           const entrantData = await FB.get(`gw:entrants/${mine.id}`);
           if (entrantData) { if (entrantData.wonPrize) {
             setWonPrize(entrantData.wonPrize);
+            stashWonPrize(sessionId, entrantData.wonPrize);
             setOnMyWaySent(!!entrantData.onMyWay);
             return setStage("won");
           } }
@@ -4027,6 +4171,10 @@
         const data = snap.val();
         if (data) { if (data.won) { if (data.wonPrize) {
           setWonPrize(data.wonPrize);
+          // v2.19.0: keep a device-local copy the moment the win lands,
+          // so it survives the host ending the giveaway (which deletes
+          // every entrant record) — see readStashedWonPrize in check().
+          stashWonPrize(sessionId, data.wonPrize);
           setStage("won");
         } } }
       };
@@ -4181,7 +4329,9 @@
           ) : null) : null}
         </div>
 
-        <ClaimCountdown c={c} wonPrize={wonPrize} />
+        {/* v2.19.0: a claim countdown is meaningless once the giveaway
+            itself has ended — the note below replaces it. */}
+        {sessionEnded ? null : <ClaimCountdown c={c} wonPrize={wonPrize} />}
         <DrawingInfoAlert c={c} session={sessionInfo} authUser={authUser} />
 
         {/* Code reveal for code-type prizes — button kept close to the top */}
@@ -4201,7 +4351,7 @@
             </a>
             <p style={{ fontSize: 12, color: c.inkMute, marginBottom: 14 }}>Opens the Pokémon GO store in a new tab.</p>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 14 }}>
-              <StickerBtn fill={c.blue} shadow={c.blueDeep} small onClick={() => navigator.clipboard.writeText(wonPrize.code)}>Copy</StickerBtn>
+              <CopyButton c={c} value={wonPrize.code} label="Copy" fill={c.blue} shadow={c.blueDeep} />
               <StickerBtn fill={c.purple} shadow={c.purpleDeep} small onClick={() => { if (navigator.share) navigator.share({ title: "Pokémon GO code", text: wonPrize.code }); }}>Share</StickerBtn>
             </div>
           </>
@@ -4234,7 +4384,15 @@
             host's live screen shows a checkmark next to this winner's
             name once it lands. Shown for every prize type — even a code
             winner benefits from letting the host know they've seen it. */}
-        {onMyWaySent ? (
+        {/* v2.19.0: "I'm on my way" writes to the entrant record, which
+            no longer exists once the host has ended the giveaway, so it
+            is replaced by a plain note rather than a button that would
+            silently do nothing. */}
+        {sessionEnded ? (
+          <div style={{ background: c.paperDim, borderRadius: 12, padding: "11px 14px", marginBottom: 14, fontSize: 12.5, color: c.inkSoft, lineHeight: 1.5 }}>
+            This giveaway has finished, but your prize still stands. Show this screen to a host to collect it.
+          </div>
+        ) : onMyWaySent ? (
           <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, color: c.grassDeep, fontWeight: 700, fontSize: 13, marginBottom: 14 }}>
             <Icon name="check" size={14} /> Host notified you're on your way
           </div>
@@ -7314,6 +7472,13 @@
     const [prizes, setPrizes] = useState([]);
     const [won, setWon] = useState(null);
     const [reel, setReel] = useState("");
+    // v2.19.0: distinguishes "arrived at an empty machine" from "spun and
+    // the last prize went mid-spin", which need different words.
+    const [emptyAfterSpin, setEmptyAfterSpin] = useState(false);
+    // v2.19.0: what the player actually won, in the case where the win
+    // couldn't be recorded — stock is already spent by then, so the host
+    // needs something identifiable to settle it by hand.
+    const [errorInfo, setErrorInfo] = useState(null);
     const fp = fingerprint();
 
     // Turn a stored gc:spins record back into the reveal payload, so a
@@ -7342,6 +7507,10 @@
     };
 
     const check = async () => {
+      // Re-checking is a fresh look at the machine, so the post-spin
+      // wording and any stranded error details are cleared first.
+      setEmptyAfterSpin(false);
+      setErrorInfo(null);
       const sess = await FB.get("gc:session");
       if (!sess || sess.id !== sessionId) return setStage("nosession");
       const prizeList = gachaPrizesObjToArray(await FB.get("gc:prizes"));
@@ -7423,7 +7592,7 @@
         if (committed) { claimed = pick; break; }
         tried[pick.id] = true;
       }
-      if (!claimed) return finish(() => setStage("empty"));
+      if (!claimed) return finish(() => { setEmptyAfterSpin(true); setStage("empty"); });
 
       // Code prizes pull from the shared Code Drop stash. If the stash is
       // dry, the spin still stands — the prize becomes a see-the-host
@@ -7457,7 +7626,10 @@
           const freshList = gachaPrizesObjToArray(await FB.get("gc:prizes"));
           return finish(() => { revealFromRecord(recorded, freshList); });
         }
-        return finish(() => setStage("error"));
+        return finish(() => {
+          setErrorInfo({ prizeName: claimed.name, playerName, code: codeValue || null });
+          setStage("error");
+        });
       }
 
       await incrementCounter("gc:session/spinCount");
@@ -7524,21 +7696,48 @@
       </Paper>
     );
 
+    // v2.19.0: two versions of this. Arriving at a machine that is
+    // already empty is disappointing but coherent. Watching the reel spin
+    // and THEN being told everything is gone flatly contradicts the
+    // "everyone wins something" promise on the previous screen, so that
+    // case says what actually happened. Both get a Check again, since the
+    // host can restock mid-event — Code Drop's equivalent screen has had
+    // one all along.
     if (stage === "empty") return wrap(
       <Paper c={c} accent={c.strawberry} style={{ textAlign: "center", padding: "32px 24px" }}>
         <IconBox emoji="🎰" bg={c.strawberry + "33"} border={c.strawDeep} size={80} fontSize={36} />
         <div style={{ height: 16 }} />
-        <Banner c={c} fill={c.strawberry}>All out!</Banner>
-        <p style={{ marginTop: 14, color: c.inkSoft, fontSize: 14, lineHeight: 1.5 }}>Every prize in this machine has been won. Catch us at the next meetup!</p>
+        <Banner c={c} fill={c.strawberry}>{emptyAfterSpin ? "Just missed it" : "All out!"}</Banner>
+        <p style={{ marginTop: 14, color: c.inkSoft, fontSize: 14, lineHeight: 1.5 }}>
+          {emptyAfterSpin
+            ? "The last prize went while you were spinning, so nothing came out. Your spin hasn't been used — check again in case the host tops it up."
+            : "Every prize in this machine has been won. Check again in case the host tops it up, or catch us at the next meetup!"}
+        </p>
+        <div style={{ marginTop: 20 }}><StickerBtn fill={c.blue} shadow={c.blueDeep} onClick={check}>Check again</StickerBtn></div>
       </Paper>
     );
 
+    // v2.19.0: by the time this shows, a unit of prize stock is already
+    // gone and a code may already be claimed in that player's name, so
+    // this screen names the prize rather than leaving both the player and
+    // the host with nothing to work from.
     if (stage === "error") return wrap(
       <Paper c={c} accent={c.strawberry} style={{ textAlign: "center", padding: "32px 24px" }}>
         <IconBox emoji="⚠" bg={c.strawberry + "33"} border={c.strawDeep} size={80} fontSize={36} />
         <div style={{ height: 16 }} />
-        <Banner c={c} fill={c.strawberry}>Something went wrong</Banner>
-        <p style={{ marginTop: 14, color: c.inkSoft, fontSize: 14, lineHeight: 1.5 }}>Your spin didn't save properly. Show this screen to a host.</p>
+        <Banner c={c} fill={c.strawberry}>Couldn't save your spin</Banner>
+        <p style={{ marginTop: 14, color: c.inkSoft, fontSize: 14, lineHeight: 1.5 }}>
+          {errorInfo ? "You did win something, but it didn't record properly. Show a host this screen." : "Your spin didn't save properly. Show a host this screen, or try again."}
+        </p>
+        {errorInfo ? (
+          <div style={{ marginTop: 14, background: c.paperDim, borderRadius: 12, padding: "12px 14px", textAlign: "left" }}>
+            <div style={{ fontSize: 10, letterSpacing: 1, color: c.inkMute, fontWeight: 700, marginBottom: 4 }}>FOR THE HOST</div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: c.ink }}>{errorInfo.prizeName}</div>
+            <div style={{ fontSize: 12, color: c.inkSoft, marginTop: 2 }}>{errorInfo.playerName} · session {sessionCode(sessionId)}</div>
+            {errorInfo.code ? <div style={{ fontFamily: "monospace", fontSize: 15, fontWeight: 700, color: c.purple, marginTop: 8, wordBreak: "break-all" }}>{errorInfo.code}</div> : null}
+          </div>
+        ) : null}
+        <div style={{ marginTop: 20 }}><StickerBtn fill={c.blue} shadow={c.blueDeep} onClick={check}>Try again</StickerBtn></div>
       </Paper>
     );
 
@@ -7574,11 +7773,18 @@
               <div style={{ fontFamily: "monospace", fontSize: 22, fontWeight: 700, color: c.ink, letterSpacing: 2, wordBreak: "break-all", lineHeight: 1.3, marginBottom: won.codeReward ? 8 : 0 }}>{won.code}</div>
               {won.codeReward ? <div style={{ fontSize: 13, fontWeight: 700, color: c.grassDeep }}>{won.codeReward}</div> : null}
             </div>
+            {/* v2.19.0: Code Drop and the Giveaway both carry this
+                warning and Gacha shipped without it, even though all
+                three hand out codes from the same stash and redeeming
+                against the wrong account burns the code for good. */}
+            <div style={{ background: c.sun + "22", borderRadius: 12, padding: "10px 12px", marginBottom: 12, fontSize: 12, color: c.inkSoft, lineHeight: 1.5, textAlign: "left" }}>
+              <strong>Before you redeem:</strong> make sure you're signed into the Pokémon GO store with the <strong>same account</strong> you use in the game, or the code won't apply to your account.
+            </div>
             <a href={`https://store.pokemongo.com/offer-redemption?passcode=${encodeURIComponent(won.code)}`} target="_blank" rel="noopener noreferrer" style={{ textDecoration: "none", display: "block", marginBottom: 12 }}>
               <StickerBtn fill={c.grassMid} shadow={c.grassDeep} style={{ width: "100%", fontSize: 16, padding: 14, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8 }}><Icon name="external" size={16} /> Redeem now</StickerBtn>
             </a>
             <div style={{ marginBottom: 14 }}>
-              <StickerBtn fill={c.blue} shadow={c.blueDeep} small onClick={() => navigator.clipboard.writeText(won.code)}>Copy code</StickerBtn>
+              <CopyButton c={c} value={won.code} label="Copy code" fill={c.blue} shadow={c.blueDeep} />
             </div>
           </>
         ) : (
@@ -7670,7 +7876,12 @@
       const id = `milestone-${t}`;
       if (activityCount >= t) { if (!existingIds.has(id)) {
         updates[`users/${uid}/passport/badges/${id}`] = {
-          kind: "milestone", label: `${t} check-in${t !== 1 ? 's' : ''}`,
+          // v2.19.0: these were labelled "check-ins", but the counter
+          // behind them is bumped by code claims and gacha spins too, so
+          // someone could see "0 check-ins" in their passport header
+          // directly above a lit-up "5 check-ins" badge. A passport
+          // collects stamps, and every one of those actions earns one.
+          kind: "milestone", label: `${t} stamp${t !== 1 ? 's' : ''}`,
           iconUrl: DEFAULT_BADGE_ICON, eventType: null, earnedAt: Date.now(), threshold: t,
         };
       } }
@@ -8057,25 +8268,41 @@
   // never show a check-in option the person can't actually use).
   // ───────────────────────────────────────────────────────────
   function PassportCheckIn({ c, session, authUser, onGoogleSignIn, authBusy }) {
-    const [geoState, setGeoState] = useState("checking"); // checking | in_range | out_of_range | denied | unsupported
+    // v2.19.0: "nofix" is new. This used to report EVERY geolocation
+    // failure as "denied", so the ordinary case at a park meetup — a
+    // phone that simply can't get a fix under tree cover, which raises
+    // POSITION_UNAVAILABLE or TIMEOUT, not PERMISSION_DENIED — sent
+    // people hunting through Settings for a permission they had already
+    // granted.
+    const [geoState, setGeoState] = useState("checking"); // checking | in_range | out_of_range | denied | nofix | unsupported
     const [distance, setDistance] = useState(null);
     const [checkedIn, setCheckedIn] = useState(false);
     const [checking, setChecking] = useState(false);
     const [showTrouble, setShowTrouble] = useState(false);
+    // Bumping this re-runs the watcher, which is what Try again does.
+    const [geoAttempt, setGeoAttempt] = useState(0);
 
     useEffect(() => {
       if (!navigator.geolocation) { setGeoState("unsupported"); return; }
+      setGeoState("checking");
       const watchId = navigator.geolocation.watchPosition(
         (pos) => {
           const d = distanceMeters(pos.coords.latitude, pos.coords.longitude, session.lat, session.lng);
           setDistance(d);
           setGeoState(d <= (session.radiusMeters || CHECKIN_RADIUS_METERS) ? "in_range" : "out_of_range");
         },
-        () => setGeoState("denied"),
+        (err) => {
+          // err.code 1 is PERMISSION_DENIED; 2 (POSITION_UNAVAILABLE) and
+          // 3 (TIMEOUT) both mean "we just can't see the sky well enough
+          // yet", which is a completely different message and a
+          // completely different fix.
+          const denied = err ? err.code === 1 : false;
+          setGeoState(denied ? "denied" : "nofix");
+        },
         { enableHighAccuracy: true, maximumAge: 15000, timeout: 10000 }
       );
       return () => navigator.geolocation.clearWatch(watchId);
-    }, [session.lat, session.lng, session.radiusMeters]);
+    }, [session.lat, session.lng, session.radiusMeters, geoAttempt]);
 
     useEffect(() => {
       if (!authUser) return;
@@ -8132,15 +8359,39 @@
             >
               {checking ? "Checking in…" : "Check in"}
             </button>
-            <div style={{ textAlign: "center", marginTop: 8 }}>
+
+            {/* v2.19.0: the button is disabled in four of the five
+                states, and the reason used to be hidden behind a second
+                tap on an 11px grey link. Say it plainly, right under the
+                button, including the distance — the one number that
+                actually tells someone what to do next. */}
+            <div style={{ marginTop: 10, fontSize: 12.5, lineHeight: 1.5, color: c.inkSoft, background: c.paperDim, borderRadius: 10, padding: "10px 12px", textAlign: "left" }}>
+              {geoState === "checking" ? "Finding your location…" : null}
+              {geoState === "in_range" ? <span style={{ color: c.grassDeep, fontWeight: 700 }}>You're in range. Tap Check in.</span> : null}
+              {geoState === "out_of_range" ? `You're about ${Math.round(distance)}m away. Head a bit closer and this will unlock on its own.` : null}
+              {geoState === "nofix" ? "Can't get a GPS fix right now. This is common under trees or indoors — step into the open and try again." : null}
+              {geoState === "denied" ? "Location is switched off for this site. Turn it on in your browser settings, or ask a host to check you in." : null}
+              {geoState === "unsupported" ? "This browser can't do location check-in. Ask a host to check you in." : null}
+            </div>
+
+            {/* Retry is only meaningful when the fix failed; being out of
+                range resolves itself as they walk. */}
+            {geoState === "nofix" ? (
+              <div style={{ textAlign: "center", marginTop: 10 }}>
+                <StickerBtn fill={c.blue} shadow={c.blueDeep} small onClick={() => setGeoAttempt(geoAttempt + 1)} style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                  <Icon name="refresh" size={12} /> Try again
+                </StickerBtn>
+              </div>
+            ) : null}
+
+            <div style={{ textAlign: "center", marginTop: 10 }}>
               <button onClick={() => setShowTrouble(!showTrouble)} style={{ background: "none", border: "none", color: c.inkMute, fontSize: 11, fontFamily: "Fredoka, sans-serif", cursor: "pointer", textDecoration: "underline", padding: 0 }}>
-                Trouble checking in?
+                Still stuck?
               </button>
             </div>
             {showTrouble ? (
               <div style={{ fontSize: 11, color: c.inkSoft, lineHeight: 1.5, marginTop: 8, background: c.paperDim, borderRadius: 10, padding: "10px 12px" }}>
-                {geoState === "denied" ? "Location access was denied. " : geoState === "unsupported" ? "Your browser doesn't support location check-in. " : geoState === "out_of_range" ? `You're about ${Math.round(distance)}m away — get a bit closer, or ` : ""}
-                Ask a host to check you in manually.
+                Ask a host to check you in manually. They can send you a link that skips the location check.
               </div>
             ) : null}
           </>
@@ -8287,7 +8538,7 @@
           <BackButton c={c} onClick={() => setView("home")} />
           <div style={{ flex: 1 }}>
             <div style={{ fontWeight: 700, fontSize: 20, color: "#fff", textShadow: "0 2px 4px rgba(0,0,0,0.25)", lineHeight: 1.1 }}>My passport</div>
-            <div style={{ fontSize: 13, color: c.grassMid, fontWeight: 600, marginTop: 2 }}>{checkInCount} check-in{checkInCount !== 1 ? 's' : ''} &middot; {badges.filter(b => b.kind === "named").length} named badge{badges.filter(b => b.kind === "named").length !== 1 ? 's' : ''}</div>
+            <div style={{ fontSize: 13, color: c.grassMid, fontWeight: 600, marginTop: 2 }}>{checkInCount} check-in{checkInCount !== 1 ? 's' : ''} &middot; {badges.filter(b => b.kind === "named").length} event badge{badges.filter(b => b.kind === "named").length !== 1 ? 's' : ''}</div>
           </div>
         </div>
 
@@ -8335,7 +8586,12 @@
     return (
       <>
         <Paper c={c} accent={c.grassMid} style={{ marginBottom: 16 }}>
-          <div style={{ fontSize: 12, fontWeight: 700, color: c.inkMute, marginBottom: 12, textTransform: "uppercase", letterSpacing: 0.5 }}>Milestones</div>
+          <div style={{ fontSize: 12, fontWeight: 700, color: c.inkMute, marginBottom: 2, textTransform: "uppercase", letterSpacing: 0.5 }}>Milestones</div>
+          {/* v2.19.0: says out loud what earns a stamp, since the counter
+              behind these is fed by check-ins, code claims and gacha
+              spins alike — which is exactly what used to make the old
+              "check-ins" wording read as wrong. */}
+          <div style={{ fontSize: 11, color: c.inkMute, marginBottom: 12, lineHeight: 1.4 }}>You earn a stamp for checking in, claiming a code, or spinning the gacha.</div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10 }}>
             {thresholds.map(t => {
               const earned = milestoneBadges.some(b => b.threshold === t);
@@ -8347,7 +8603,7 @@
                     color: earned ? "#173404" : c.inkMute, fontWeight: 700, fontSize: 16,
                     border: earned ? `3px solid ${c.grassDeep}` : `3px dashed ${c.paperEdge}`,
                   }}>{t}</div>
-                  <div style={{ fontSize: 10, fontWeight: 600, color: earned ? c.ink : c.inkMute }}>{t === 1 ? "1st check-in" : `${t} check-ins`}</div>
+                  <div style={{ fontSize: 10, fontWeight: 600, color: earned ? c.ink : c.inkMute }}>{t === 1 ? "1st stamp" : `${t} stamps`}</div>
                 </div>
               );
             })}
@@ -9025,7 +9281,7 @@
   // Bump this with every release so the live page always shows what's
   // actually deployed — no more guessing whether a paste went through,
   // or which version is live when reporting a field issue.
-  const APP_VERSION = "v2.18.1";
+  const APP_VERSION = "v2.19.0";
 
   function VersionFooter() {
     return (
