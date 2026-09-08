@@ -291,3 +291,24 @@ Prompted by watching real attendees hesitate at a live event. Every screen an at
 **Copy buttons work and say so.** All four attendee copy buttons called `navigator.clipboard` directly with no success state and no catch — and that call genuinely rejects on older iOS Safari and outside a secure context, so someone could walk away believing they held their prize code when the clipboard was untouched. A shared `CopyButton` now confirms the copy for two seconds and, on failure, says so and tells them to press and hold instead.
 
 **Gacha's code reveal carries the wrong-account warning** that Code Drop and the Giveaway already had. All three hand out codes from the same stash, and redeeming against the wrong account burns the code permanently.
+
+### v2.20.0 — one app instead of three
+The experience rework the v2.19.0 audit set up. Attendee-facing only: no host screens touched, **no Firebase rules change**.
+
+**Identity, asked once.** The landing page's "Continue as guest" collected a name into `ggpogo_guest_name` while all three claim flows prefilled from `ggpogo_trainer_name` — two stores that never spoke, so a guest typed their name at the door and got an empty name field on the very next screen. `setGuestName` now feeds both, and the door is the only place anyone types a name.
+
+A name is now **required everywhere**. It previously fell back to "Anonymous" or, for signed-in users, "Signed-in Trainer" — which identifies nobody at a prize table, and several signed-in people leaving it blank put a run of identical rows on the host's hand-out queue. "Skip for now" is gone from the trainer-name chooser for the same reason. It is always a *chosen* name and never the Google account name: signing in hands the app a real full name, and that name gets read aloud at raffles, which is a disclosure nobody agreed to. `resolveDisplayName` resolves profile name → device name → nothing, and never touches `authUser.displayName`.
+
+Once a name is known, every tool is one tap: a `PlayingAs` line ("Playing as AshK, change") replaces the form. The field still appears for anyone who arrived by QR without passing the landing page, which is the normal Code Drop route.
+
+**Navigation.** Every attendee flow is now wrapped in `AttendeeShell`: a back link to the event list, and one-tap links to whatever else is running. None of the three claim screens previously had *any* navigation — once on the Giveaway URL the only ways out were editing the address bar or finding a QR to rescan, which is the direct cause of people stalling after entering. Code Drop is excluded from the cross-links, since it is host-presented and advertising it would recreate the same dead end elsewhere.
+
+**Landing page.** Cut from nine stacked elements to four: logo, who you are, the live tiles, one quiet footer row. Gone are the email address, the sign-out link sitting at 11px, the two competing chips, the separate guest banner, the "There's an event happening now" line the tiles already say, and the standalone privacy line.
+
+Tiles are now real `<button>`s with a pressed state and a focus ring, with the whole card as the target rather than the chevron reading as the only live part. They carry state — "You're entered", "You won a Lure Pin" — read from `gw:entrants` by fingerprint and `gc:spins/{fp}` directly, so the screen people keep returning to finally answers "what have I already done?". A paused tool now dims, shows a PAUSED chip and drops its accent, instead of changing one line of 12px text.
+
+`ActivityHistory` and `MyPassport` are merged into **My stuff**, reached from a single footer link. They were two identical-looking chips for one idea, and the app was already confused about which held what. Both components gained an `embedded` prop and keep working standalone, so older links still resolve.
+
+**Consistency.** One `NameField` with one label and one helper line, used by all three flows and the chooser. One sign-in sentence, replacing five variants that sold it as history, badges, passport progress, progress, and profile. Passport's two "Log in to earn a badge!" buttons now say "Sign in with Google" like everywhere else, and no longer promise a badge that is only awarded when the host enabled one. Gacha's handoff card carries the winner's name and session code, which the Giveaway teaches people a host may ask for. Matching win language ("You won!"), matching button casing, and the STEP 1 OF 2 pill is gone from the one tool that had it and had no step 2.
+
+`GuestBanner` and `CommunitySignInChooser` were removed as dead code once the landing page's own identity gate replaced them.

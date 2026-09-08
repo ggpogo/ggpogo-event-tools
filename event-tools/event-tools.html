@@ -1,40 +1,46 @@
 <!--
-  v2.19.0 — correctness pass across every attendee screen
-  A full audit of what an attendee can reach, then fixes. No structural
-  change: the landing page rework and shared navigation come next.
-  - Code Drop is no longer listed on the attendee landing page. That tile
-    linked to the claim page WITH the session's live claim token
-    attached, so anyone opening the plain Event Tools URL during a Code
-    Drop could take a code with no host involvement, defeating both the
-    rotating token and the host's control of distribution. Code Drop is
-    now reachable only by the QR a host presents.
-  - A giveaway winner no longer loses their prize (or their redemption
-    code) by reloading after the host ends the session. Ending a giveaway
-    deletes every entrant record, so the win is now also kept on the
-    winner's own device, keyed to that session, and re-shown afterwards.
-  - Dismissing the guest banner no longer permanently removes the only
-    remaining way to sign in on that device.
-  - Gacha's error screen now names the prize, the player and the session
-    code (stock is already spent by then, so a host needs something to
-    settle it by hand) and offers a retry. Running out mid-spin now says
-    what actually happened instead of contradicting "everyone wins", and
-    both empty states offer Check again since hosts can restock.
-  - Passport check-in tells a failed GPS fix apart from a denied
-    permission, so the ordinary park-under-trees case stops telling
-    people to fix a setting that was never the problem. Distance and
-    status now sit permanently under the button instead of behind a tap,
-    with a retry when the fix failed.
-  - Milestone badges are stamps, not check-ins. The counter behind them
-    is fed by code claims and gacha spins too, so a passport could show
-    "0 check-ins" above a lit-up "5 check-ins" badge.
-  - My Activity now includes check-ins, which it was titled after and
-    never showed, and the Giveaway/Gacha icons are no longer swapped.
-  - All four attendee copy buttons confirm the copy, and handle the
-    clipboard rejecting (older iOS Safari, non-secure contexts) instead
-    of failing silently while looking like they worked.
-  - Gacha's code reveal carries the same wrong-account warning Code Drop
-    and the Giveaway already had.
-  No Firebase rules change in this release.
+  v2.20.0 — one app instead of three
+  The experience rework the v2.19.0 audit set up. Attendee-facing only;
+  no host screens and no Firebase rules change.
+  IDENTITY, ASKED ONCE
+  - The landing page collected a guest name into one storage key while
+    every tool prefilled from another, so someone typed their name at the
+    door and got an empty field on the very next screen. One writer now
+    feeds both, and the door is the only place anyone types a name.
+  - A name is now required everywhere. It used to become "Anonymous" or
+    "Signed-in Trainer", which identifies nobody at a prize table and put
+    rows of identical entries on the host's list. The name chooser's
+    "Skip for now" is gone for the same reason.
+  - It is always a chosen name, never the Google account name: signing in
+    hands us a real full name, and that gets read aloud at raffles.
+  - Once a name is known, every tool is one tap, with a quiet
+    "Playing as X, change" line where the form used to be.
+  NAVIGATION
+  - Every attendee flow is wrapped in a shared shell: a way back to the
+    event list, and one-tap links to whatever else is running. None of
+    the three screens previously had any navigation at all, so the only
+    ways out were editing the URL or rescanning a QR — which is why
+    people stalled after entering. Code Drop is excluded from the
+    cross-links since it is host-presented.
+  LANDING PAGE
+  - Cut from nine stacked elements to four: logo, who you are, the live
+    tiles, one quiet footer row. The tiles people scanned a QR to reach
+    used to sit fourth, under two rows about their account.
+  - Tiles are real buttons with a pressed state, they say what you have
+    already done ("You're entered", "You won a Lure Pin") instead of
+    looking identical before and after, and a paused tool now looks
+    paused rather than changing one line of 12px text.
+  - My Activity and My Passport are merged into My stuff. They were two
+    identical-looking chips for the same idea, and the app was already
+    confused about which held what.
+  CONSISTENCY
+  - One name field, one label, one helper line, one position.
+  - One sign-in sentence. It was sold as history, badges, passport
+    progress, progress, and profile, in five places.
+  - Gacha's handoff card now carries the winner's name and session code,
+    which the Giveaway teaches people a host may ask for.
+  - Matching win language, button casing, and no more STEP 1 OF 2 on the
+    one tool that had it and had no step 2.
   Full history: ggpogo-event-tools-CHANGELOG.md
 -->
 <div id="ggpogo-event-tools-root" style="min-height: 100vh; width: 100%;"></div>
@@ -453,7 +459,6 @@
   const AGE_CONFIRMED_KEY = "ggpogo_age_confirmed";
   const GUEST_MODE_KEY = "ggpogo_guest_mode";
   const GUEST_NAME_KEY = "ggpogo_guest_name";
-  const GUEST_BANNER_DISMISSED_KEY = "ggpogo_guest_banner_dismissed";
 
   function isAgeConfirmed() {
     try { return localStorage.getItem(AGE_CONFIRMED_KEY) === "1"; } catch (e) { return false; }
@@ -472,12 +477,24 @@
   }
   function setGuestName(name) {
     try { if (name) localStorage.setItem(GUEST_NAME_KEY, name); else localStorage.removeItem(GUEST_NAME_KEY); } catch (e) { /* ignore */ }
+    // v2.20.0: the landing page collected a guest name into its own key,
+    // while every claim flow prefilled from the trainer-name key — two
+    // stores that never spoke. A guest typed their name at the door and
+    // then got an empty name field on the very next screen. One writer
+    // now feeds both, so the door is the only place anyone types a name.
+    saveTrainerName(name);
   }
-  function isGuestBannerDismissed() {
-    try { return localStorage.getItem(GUEST_BANNER_DISMISSED_KEY) === "1"; } catch (e) { return false; }
-  }
-  function dismissGuestBanner() {
-    try { localStorage.setItem(GUEST_BANNER_DISMISSED_KEY, "1"); } catch (e) { /* ignore */ }
+
+  // The one name the app shows and announces, in priority order: the
+  // signed-in profile's trainer name, then whatever this device last
+  // saved. Deliberately never falls back to a Google account name — that
+  // is a real full name, and it gets read aloud at raffles.
+  function resolveDisplayName(profileTrainerName) {
+    const profile = profileTrainerName ? String(profileTrainerName).trim() : "";
+    if (profile) return profile;
+    const saved = getSavedTrainerName();
+    if (saved) return saved;
+    return "";
   }
 
   // Check if a Firebase Auth user is a host by looking up /roles/hosts/{uid}
@@ -1219,6 +1236,127 @@
     );
   }
 
+  // v2.20.0: the frame around every attendee flow.
+  //
+  // Until now none of the three claim screens had any navigation at all.
+  // Once someone was on the Giveaway URL the only ways out were editing
+  // the address bar or finding a QR code to rescan, which is exactly why
+  // people stalled after entering: there was nothing to do and nowhere to
+  // go. This adds the two things that were missing everywhere at once — a
+  // way back to the list, and a way across to whatever else is running.
+  //
+  // Code Drop is deliberately absent from the cross-links: it is
+  // host-presented, so advertising it to someone who cannot open it
+  // themselves would recreate the same dead end in a new place.
+  function AttendeeShell({ c, children, currentTool }) {
+    const [gwSession, setGwSession] = useState(null);
+    const [gcSession, setGcSession] = useState(null);
+
+    useEffect(() => {
+      const u1 = FB.watch("gw:session", (val) => setGwSession(val || null));
+      const u2 = FB.watch("gc:session", (val) => setGcSession(val || null));
+      return () => { u1(); u2(); };
+    }, []);
+
+    const goHome = () => { window.location.href = window.location.pathname; };
+
+    const others = [];
+    if (gwSession) { if (currentTool !== "giveaway") others.push({ key: "gw", label: "Giveaway", emoji: "🎁", fill: c.strawberry, border: c.strawDeep, href: `${window.location.pathname}?gw_join=${gwSession.id}` }); }
+    if (gcSession) { if (currentTool !== "gacha") others.push({ key: "gc", label: "Gacha", emoji: "🎰", fill: c.sun, border: c.sunDeep, href: `${window.location.pathname}?gc_spin=${gcSession.id}` }); }
+
+    return (
+      <div style={{ maxWidth: 420, margin: "0 auto", paddingTop: 12 }}>
+        <div style={{ marginBottom: 10 }}>
+          <button onClick={goHome} style={{
+            background: "rgba(255,252,242,0.9)", border: `2px solid ${c.paperEdge}`, borderRadius: 999,
+            padding: "6px 14px 6px 10px", cursor: "pointer",
+            display: "inline-flex", alignItems: "center", gap: 5,
+            fontFamily: "Fredoka, sans-serif", fontWeight: 700, fontSize: 12.5, color: c.ink,
+          }}>
+            <span style={{ fontSize: 15, lineHeight: 1 }}>‹</span> All events
+          </button>
+        </div>
+
+        {children}
+
+        {others.length > 0 ? (
+          <div style={{ marginTop: 18 }}>
+            <div style={{ fontSize: 11, color: "rgba(255,255,255,0.85)", fontWeight: 700, letterSpacing: 0.6, textAlign: "center", marginBottom: 8, textShadow: "0 1px 2px rgba(0,0,0,0.25)" }}>
+              ALSO HAPPENING NOW
+            </div>
+            <div style={{ display: "flex", gap: 10, justifyContent: "center", flexWrap: "wrap" }}>
+              {others.map(o => (
+                <a key={o.key} href={o.href} style={{ textDecoration: "none" }}>
+                  <div style={{
+                    background: "#fff", border: `2px solid ${o.border}`, borderRadius: 999,
+                    padding: "8px 16px", display: "inline-flex", alignItems: "center", gap: 8,
+                    boxShadow: `0 3px 0 ${o.border}`,
+                    fontFamily: "Fredoka, sans-serif", fontWeight: 700, fontSize: 13.5, color: c.ink,
+                  }}>
+                    <span style={{ fontSize: 15, lineHeight: 1 }}>{o.emoji}</span> {o.label}
+                  </div>
+                </a>
+              ))}
+            </div>
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+
+  // v2.20.0: one way to ask for a name, used everywhere.
+  //
+  // This field previously had five labels across the app ("Choose your
+  // trainer name", "Public trainer name", "Display name (optional)",
+  // "Your name (optional)", "Your name") and three different rules about
+  // whether it was required — so the same question looked like a
+  // different question in each tool. It is now required everywhere,
+  // because the host reads it aloud at raffles and matches it to a face
+  // at the prize table, and a blank one used to become "Anonymous" or,
+  // worse, a row of identical "Signed-in Trainer" entries.
+  //
+  // It is a chosen name, never the Google account name. Signing in with
+  // Google gives us a real full name, and reading that out at a public
+  // meetup exposes people in a way they did not agree to.
+  function NameField({ c, value, onChange, onSubmit, autoFocus }) {
+    return (
+      <div style={{ textAlign: "left", marginBottom: 14 }}>
+        <label style={{ fontSize: 12, fontWeight: 700, color: c.inkSoft, display: "block" }}>Your name</label>
+        <div style={{ fontSize: 11, color: c.inkMute, marginTop: 2, marginBottom: 6, lineHeight: 1.4 }}>
+          What the host calls out and hands prizes to. A nickname is fine.
+        </div>
+        <input
+          value={value}
+          onChange={e => onChange(e.target.value)}
+          onKeyDown={e => { if (e.key === "Enter") { if (onSubmit) onSubmit(); } }}
+          placeholder="e.g. AshK"
+          maxLength={32}
+          autoFocus={autoFocus}
+          style={{ textAlign: "left", fontSize: 16, width: "100%", boxSizing: "border-box" }}
+        />
+      </div>
+    );
+  }
+
+  // Shown once a name is known, in place of the field: the whole point of
+  // asking at the door is that a tool then costs exactly one tap.
+  function PlayingAs({ c, name, onChange }) {
+    return (
+      <div style={{
+        display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+        background: c.paperDim, borderRadius: 10, padding: "9px 12px", marginBottom: 14,
+        fontSize: 13, color: c.inkSoft,
+      }}>
+        <span>Playing as <b style={{ color: c.ink }}>{name}</b></span>
+        <button onClick={onChange} style={{
+          background: "none", border: "none", padding: 0, cursor: "pointer",
+          fontFamily: "Fredoka, sans-serif", fontWeight: 600, fontSize: 12,
+          color: c.blue, textDecoration: "underline",
+        }}>change</button>
+      </div>
+    );
+  }
+
   function Paper({ children, style = {}, accent, c }) {
     return (
       <div style={{
@@ -1649,7 +1787,7 @@
   // TRAINER NAME CHOOSER — shown once after first Google sign-in
   // if the user's profile has no trainerName yet.
   // ───────────────────────────────────────────────────────────
-  function TrainerNameChooser({ c, authUser, onSave, onSkip }) {
+  function TrainerNameChooser({ c, authUser, onSave }) {
     const [name, setName] = useState("");
     const [saving, setSaving] = useState(false);
 
@@ -1669,31 +1807,21 @@
           <div style={{ marginBottom: 14, display: "flex", justifyContent: "center" }}>
             <img src="https://ggpogo.com/wp-content/uploads/2026/05/logo-no-text.png" alt="Garden Grove PoGo" style={{ width: 72, height: 72, objectFit: "contain" }} />
           </div>
-          <h2 style={{ fontFamily: "Fredoka, sans-serif", fontSize: 20, fontWeight: 700, color: c.ink, marginBottom: 8 }}>Choose your trainer name</h2>
+          <h2 style={{ fontFamily: "Fredoka, sans-serif", fontSize: 20, fontWeight: 700, color: c.ink, marginBottom: 8 }}>Pick a name</h2>
           <p style={{ color: c.inkSoft, fontSize: 13, lineHeight: 1.5, marginBottom: 18 }}>
-            This is the public name the host will use at meetups — like for giveaway callouts. It can be your in-game name or anything you like.
+            This is the only name we ever show or read out. Your Google name stays private.
           </p>
-          <div style={{ textAlign: "left", marginBottom: 6 }}>
-            <label style={{ fontSize: 12, fontWeight: 700, color: c.inkSoft }}>Public trainer name</label>
-          </div>
-          <input
-            value={name}
-            onChange={e => setName(e.target.value)}
-            onKeyDown={e => { if (e.key === "Enter") handleSave(); }}
-            placeholder="e.g. AshK"
-            maxLength={32}
-            style={{ textAlign: "left", fontSize: 16, marginBottom: 18, width: "100%", boxSizing: "border-box" }}
-          />
+          <NameField c={c} value={name} onChange={setName} onSubmit={handleSave} autoFocus />
+          {/* v2.20.0: "Skip for now" is gone. It left signed-in people
+              with no name at all, which then surfaced as a row of
+              identical "Signed-in Trainer" entries on the host's
+              hand-out list. The name is what makes a raffle callout and
+              a prize handoff work, so it is now the price of entry. */}
           <StickerBtn fill={c.blue} shadow={c.blueDeep} disabled={!name.trim() || saving} onClick={handleSave} style={{ width: "100%", fontSize: 16, padding: 14, marginBottom: 14 }}>
             {saving ? "Saving…" : "Save & continue"}
           </StickerBtn>
-          <button onClick={onSkip} style={{
-            background: "transparent", border: "none", color: c.inkMute, fontSize: 12,
-            fontFamily: "Fredoka, sans-serif", fontWeight: 600, cursor: "pointer",
-            textDecoration: "underline", padding: 6,
-          }}>Skip for now</button>
-          <p style={{ color: c.inkMute, fontSize: 11, marginTop: 14, lineHeight: 1.4 }}>
-            You can change this later. Your Google account info stays private.
+          <p style={{ color: c.inkMute, fontSize: 11, marginTop: 4, lineHeight: 1.4 }}>
+            You can change this any time.
           </p>
           <div style={{ fontSize: 10, color: c.inkMute, marginTop: 6 }}>
             <a href="/privacy-policy/" target="_blank" rel="noopener noreferrer" style={{ color: c.blue, fontWeight: 700 }}>Privacy Policy</a>
@@ -1737,53 +1865,13 @@
     );
   }
 
-  // ───────────────────────────────────────────────────────────
-  // GUEST BANNER — persistent but dismissible banner for users
-  // browsing without signing in.
-  // ───────────────────────────────────────────────────────────
-  function GuestBanner({ c, onSignIn }) {
-    const [dismissed, setDismissed] = useState(isGuestBannerDismissed);
-    // v2.19.0: dismissing this used to render nothing at all — and since
-    // the full sign-in chooser is hidden once someone is in guest mode,
-    // that single tap on a tiny × permanently removed the only remaining
-    // way to sign in on that device. Dismissing now silences the pitch
-    // but keeps one quiet way back in.
-    if (dismissed) {
-      return (
-        <div style={{ textAlign: "center", marginBottom: 14 }}>
-          <button onClick={onSignIn} style={{
-            background: "none", border: "none", padding: 0, cursor: "pointer",
-            fontFamily: "Fredoka, sans-serif", fontWeight: 600, fontSize: 12,
-            color: c.blue, textDecoration: "underline",
-          }}>Sign in with Google</button>
-        </div>
-      );
-    }
-    return (
-      <div style={{
-        background: c.sun + "22", border: `2px solid ${c.sun}`, borderRadius: 14,
-        padding: "10px 14px", marginBottom: 14, display: "flex", alignItems: "center", gap: 10,
-      }}>
-        <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 12, fontWeight: 700, color: c.ink, marginBottom: 2 }}>Guest mode</div>
-          <div style={{ fontSize: 11, color: c.inkSoft, lineHeight: 1.4 }}>
-            Your meetup history and passport progress won't be saved. <span onClick={onSignIn} style={{ color: c.blue, fontWeight: 700, cursor: "pointer", textDecoration: "underline" }}>Sign in with Google</span> to save your history and badges.
-          </div>
-        </div>
-        <button onClick={() => { setDismissed(true); dismissGuestBanner(); }} style={{
-          background: "transparent", border: "none", color: c.inkMute, fontSize: 18,
-          cursor: "pointer", padding: "0 4px", lineHeight: 1, flexShrink: 0,
-        }}>x</button>
-      </div>
-    );
-  }
 
   // ───────────────────────────────────────────────────────────
   // ACTIVITY HISTORY — signed-in user's check-in history.
   // Reads codeClaims and giveawayEntries from the user's
   // profile activity, merges into a single timeline.
   // ───────────────────────────────────────────────────────────
-  function ActivityHistory({ c, authUser, setView }) {
+  function ActivityHistory({ c, authUser, setView, embedded }) {
     const [items, setItems] = useState([]);
     const [loading, setLoading] = useState(true);
 
@@ -1882,14 +1970,19 @@
     }, [items]);
 
     return (
-      <div style={{ maxWidth: 460, margin: "0 auto" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20 }}>
-          <BackButton c={c} onClick={() => setView("home")} />
-          <div style={{ flex: 1 }}>
-            <div style={{ fontWeight: 700, fontSize: 22, color: "#fff", textShadow: "0 2px 4px rgba(0,0,0,0.25)", lineHeight: 1.1 }}>My Activity</div>
-            <div style={{ fontSize: 13, color: c.blue, fontWeight: 600, marginTop: 2 }}>Everything you've done at our meetups</div>
+      <div style={embedded ? {} : { maxWidth: 460, margin: "0 auto" }}>
+        {/* v2.20.0: embedded inside My stuff, this drops its own header. */}
+        {embedded ? (
+          <div style={{ fontSize: 12, fontWeight: 700, color: "rgba(255,255,255,0.9)", letterSpacing: 0.6, textShadow: "0 1px 2px rgba(0,0,0,0.25)", marginBottom: 10 }}>HISTORY</div>
+        ) : (
+          <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20 }}>
+            <BackButton c={c} onClick={() => setView("home")} />
+            <div style={{ flex: 1 }}>
+              <div style={{ fontWeight: 700, fontSize: 22, color: "#fff", textShadow: "0 2px 4px rgba(0,0,0,0.25)", lineHeight: 1.1 }}>My Activity</div>
+              <div style={{ fontSize: 13, color: c.blue, fontWeight: 600, marginTop: 2 }}>Everything you've done at our meetups</div>
+            </div>
           </div>
-        </div>
+        )}
 
         {loading ? <CenterMsg c={c} text="Loading..." /> : items.length === 0 ? (
           <Paper c={c} style={{ textAlign: "center", padding: "32px 22px" }}>
@@ -1986,46 +2079,6 @@
     );
   }
 
-  // ───────────────────────────────────────────────────────────
-  // COMMUNITY SIGN-IN CHOOSER — shown when the user has not
-  // yet signed in or chosen guest mode.
-  // ───────────────────────────────────────────────────────────
-  function CommunitySignInChooser({ c, onGoogleSignIn, onGuestMode, authBusy, authError }) {
-    const [guestName, setGuestNameLocal] = useState("");
-
-    return (
-      <div style={{ display: "flex", flexDirection: "column", gap: 12, marginTop: 18 }}>
-        <StickerBtn fill="#4285F4" shadow="#2a5db0" onClick={onGoogleSignIn} disabled={authBusy} style={{ width: "100%", padding: 14, display: "flex", alignItems: "center", justifyContent: "center", gap: 10 }}>
-          <svg width="18" height="18" viewBox="0 0 24 24" style={{ flexShrink: 0 }}>
-            <path fill="#fff" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"/>
-            <path fill="#fff" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
-            <path fill="#fff" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18A10.96 10.96 0 0 0 1 12c0 1.78.43 3.47 1.18 4.93l3.66-2.84z"/>
-            <path fill="#fff" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
-          </svg>
-          {authBusy ? "Signing in..." : "Sign in with Google"}
-        </StickerBtn>
-        {authError ? <div style={{ color: c.strawberry, fontSize: 12, fontWeight: 600, textAlign: "center" }}>{authError}</div> : null}
-
-        <div style={{ textAlign: "center", color: c.inkMute, fontSize: 12, fontWeight: 600 }}>or</div>
-
-        <div style={{ background: c.paperDim, borderRadius: 14, padding: "14px 16px" }}>
-          <div style={{ fontSize: 13, fontWeight: 600, color: c.ink, marginBottom: 8 }}>Continue as guest</div>
-          <input
-            value={guestName}
-            onChange={e => setGuestNameLocal(e.target.value)}
-            placeholder="Display name (optional)"
-            style={{ marginBottom: 10, fontSize: 14 }}
-          />
-          <StickerBtn fill={c.grassMid} shadow={c.grassDeep} onClick={() => onGuestMode(guestName)} style={{ width: "100%", padding: 10 }} small>
-            Enter as Guest
-          </StickerBtn>
-          <p style={{ fontSize: 11, color: c.inkMute, marginTop: 8, lineHeight: 1.4, textAlign: "center" }}>
-            Guest accounts won't save meetup history or passport progress.
-          </p>
-        </div>
-      </div>
-    );
-  }
 
 
 
@@ -2118,9 +2171,9 @@
     // Giveaway QR scanners, not Passport users.
     return (
       <div style={{ background: c.blue + "14", border: `2px solid ${c.blue}`, borderRadius: 14, padding: "12px 14px", marginBottom: 14, textAlign: "left" }}>
-        <div style={{ fontSize: 13, fontWeight: 700, color: c.ink, marginBottom: 4 }}>Save your progress</div>
+        <div style={{ fontSize: 13, fontWeight: 700, color: c.ink, marginBottom: 4 }}>Keep your history</div>
         <div style={{ fontSize: 11, color: c.inkSoft, lineHeight: 1.45, marginBottom: 10 }}>
-          Guests can still enter — signing in saves it to your profile.
+          Guests can still take part. Signing in keeps your history and badges between meetups.
         </div>
         {isChecking ? (
           <div style={{ fontSize: 11, color: c.inkMute, fontWeight: 600 }}>Checking sign-in status...</div>
@@ -2181,28 +2234,117 @@
     );
   }
 
-  // The attendee landing view for logged-out visitors. Watches cd:session
-  // and gw:session (both publicly readable) so it only shows tiles for
-  // tools that are actually running — no dead-end buttons between events.
-  // When nothing is active, shows a community landing with social links.
+  // A tappable tool tile. v2.20.0: a real <button> rather than a div with
+  // a click handler, so it has a pressed state and a focus ring and the
+  // whole card is the target instead of the chevron looking like the only
+  // live part. `done` is what someone has already done here — before
+  // this, a tile looked identical before and after use, which left people
+  // with no confirmation and no idea whether tapping again did anything.
+  function ToolTile({ c, emoji, title, subtitle, done, paused, accent, accentDeep, onClick }) {
+    const [pressed, setPressed] = useState(false);
+    return (
+      <button
+        onClick={onClick}
+        onPointerDown={() => setPressed(true)}
+        onPointerUp={() => setPressed(false)}
+        onPointerLeave={() => setPressed(false)}
+        style={{
+          display: "block", width: "100%", textAlign: "left", cursor: "pointer",
+          background: c.paper, border: `2px solid ${paused ? c.paperEdge : accent}`,
+          borderRadius: 18, padding: "16px 18px", fontFamily: "Fredoka, sans-serif",
+          boxShadow: pressed ? `0 1px 0 ${paused ? c.paperEdge : accentDeep}` : `0 4px 0 ${paused ? c.paperEdge : accentDeep}`,
+          transform: pressed ? "translateY(3px)" : "none",
+          transition: "transform 90ms ease, box-shadow 90ms ease",
+          opacity: paused ? 0.72 : 1,
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+          <IconBox emoji={emoji} bg={accent + "33"} border={accentDeep} size={48} fontSize={22} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+              <span style={{ fontWeight: 700, fontSize: 18, color: c.ink, lineHeight: 1.1 }}>{title}</span>
+              {paused ? (
+                <span style={{ background: c.sun + "33", color: c.sunDeep, fontSize: 10, fontWeight: 700, letterSpacing: 0.5, padding: "2px 7px", borderRadius: 6 }}>PAUSED</span>
+              ) : null}
+            </div>
+            {done ? (
+              <div style={{ color: c.grassDeep, fontSize: 12.5, marginTop: 4, fontWeight: 600, display: "flex", alignItems: "center", gap: 5 }}>
+                <Icon name="check" size={12} /> {done}
+              </div>
+            ) : (
+              <div style={{ color: c.inkSoft, fontSize: 12.5, marginTop: 4, fontFamily: "Nunito, sans-serif" }}>{subtitle}</div>
+            )}
+          </div>
+          <div style={{ color: paused ? c.inkMute : accentDeep, fontSize: 24, fontWeight: 700 }}>›</div>
+        </div>
+      </button>
+    );
+  }
+
+  // The attendee landing view. v2.20.0 rebuild: this screen had nine
+  // things stacked on it and the tiles people scanned a QR to reach sat
+  // fourth, under two rows about their account. It is now four things —
+  // logo, who you are, the tiles, and a single quiet footer row — and the
+  // tiles carry state so the page answers "what have I already done?"
+  // without anyone having to tap in to find out.
   function AttendeeHome({ setView, c, authUser, communityMode, onGoogleSignIn, onGuestMode, onSignOut, authBusy, authError, profileTrainerName }) {
     const [logoFailed, setLogoFailed] = useState(false);
     const [gwSession, setGwSession] = useState(undefined);
     const [ppSession, setPpSession] = useState(undefined);
     const [gcSession, setGcSession] = useState(undefined);
-    const savedName = getSavedTrainerName();
+    // What this device has already done in the live sessions, so the
+    // tiles can say so.
+    const [gwEntered, setGwEntered] = useState(false);
+    const [gcWon, setGcWon] = useState(null);
+    // Name entry, for someone who has not been here before or tapped
+    // "change".
+    const [editingName, setEditingName] = useState(false);
+    const [draftName, setDraftName] = useState("");
+    const [savingName, setSavingName] = useState(false);
+    const fp = fingerprint();
 
-    // v2.19.0: cd:session is deliberately not watched here any more.
-    // Code Drop is host-presented (QR only), so this screen neither
-    // lists it nor counts it towards "something is happening" — a live
-    // Code Drop on its own must not light this page up with a heading
-    // and then no tiles beneath it.
+    // v2.19.0: cd:session is deliberately not watched here. Code Drop is
+    // host-presented (QR only), so this screen neither lists it nor counts
+    // it towards "something is happening".
     useEffect(() => {
       const u1 = FB.watch("gw:session", (val) => setGwSession(val || null));
       const u2 = FB.watch("pp:session", (val) => setPpSession(val || null));
       const u3 = FB.watch("gc:session", (val) => setGcSession(val || null));
       return () => { u1(); u2(); u3(); };
     }, []);
+
+    const isSignedIn = communityMode === "signed_in" ? !!authUser : false;
+    const isGuest = communityMode === "guest";
+    const displayName = resolveDisplayName(profileTrainerName);
+    const hasIdentity = !!displayName;
+
+    // Has this device already entered the live giveaway? gw:entrants is
+    // publicly readable, and matching on fingerprint is how the claim
+    // screen recognises a returning entrant too.
+    useEffect(() => {
+      if (!gwSession) { setGwEntered(false); return undefined; }
+      let alive = true;
+      (async () => {
+        const entrants = entrantsObjToArray(await FB.get("gw:entrants"));
+        if (alive) setGwEntered(entrants.some(e => e.fp === fp));
+      })();
+      return () => { alive = false; };
+    }, [gwSession ? gwSession.id : null]);
+
+    // And has it already spun? gc:spins/$fp is readable per-child, which
+    // is the same direct read the spin screen uses.
+    useEffect(() => {
+      if (!gcSession) { setGcWon(null); return undefined; }
+      let alive = true;
+      (async () => {
+        const mine = await FB.get(`gc:spins/${fp}`);
+        if (!mine) { if (alive) setGcWon(null); return; }
+        const prizes = gachaPrizesObjToArray(await FB.get("gc:prizes"));
+        const prize = prizes.find(p => p.id === mine.prizeId);
+        if (alive) setGcWon(prize ? prize.name : "your prize");
+      })();
+      return () => { alive = false; };
+    }, [gcSession ? gcSession.id : null]);
 
     const showCustomLogo = c.logoImage ? !logoFailed : c.logoImage;
     const loading = gwSession === undefined || ppSession === undefined || gcSession === undefined;
@@ -2220,182 +2362,174 @@
       return u.toString();
     }, []);
 
-    // Determine greeting and user display info
-    const isSignedIn = communityMode === "signed_in" ? !!authUser : false;
-    const isGuest = communityMode === "guest";
-    const guestDisplayName = getGuestName();
-    const showSignInChooser = !isSignedIn ? !isGuest : false;
-    const signedInDisplayName = profileTrainerName || savedName || "Trainer";
-    const greeting = isSignedIn
-      ? `Hey, ${signedInDisplayName}!`
-      : isGuest
-        ? (guestDisplayName ? `Hey, ${guestDisplayName}!` : (savedName ? `Hey, ${savedName}!` : "Welcome!"))
-        : (savedName ? `Hey, ${savedName}!` : "Welcome!");
+    const saveName = async () => {
+      const trimmed = draftName.trim();
+      if (!trimmed) return;
+      setSavingName(true);
+      saveTrainerName(trimmed);
+      if (authUser) {
+        await rememberTrainerNameForProfile(authUser, trimmed);
+      } else {
+        // Typing a name and continuing IS the guest path — there is no
+        // separate "continue as guest" decision to make afterwards.
+        onGuestMode(trimmed);
+      }
+      setSavingName(false);
+      setEditingName(false);
+      setDraftName("");
+    };
+
+    const startEditing = () => { setDraftName(displayName); setEditingName(true); };
 
     return (
       <div style={{ maxWidth: 460, margin: "0 auto" }}>
-        {/* Logo */}
-        <div style={{ textAlign: "center", marginBottom: 24 }}>
+        <div style={{ textAlign: "center", marginBottom: 18 }}>
           {showCustomLogo ? (
-            <img src={c.logoImage} alt="Logo" onError={() => setLogoFailed(true)} style={{ maxWidth: 200, display: "inline-block" }} />
+            <img src={c.logoImage} alt="Logo" onError={() => setLogoFailed(true)} style={{ maxWidth: 160, display: "inline-block" }} />
           ) : (
-            <div style={{ display: "inline-block", background: "#fff", borderRadius: 28, padding: "18px 28px", boxShadow: `0 0 0 2px ${c.blueDeep}, 0 4px 0 ${c.blueDeep}, 0 8px 12px rgba(13, 45, 82, 0.15)` }}>
-              <div style={{ fontFamily: "Fredoka, sans-serif", fontWeight: 700, fontSize: 28, color: c.blueDeep, letterSpacing: 1, lineHeight: 1 }}>GARDEN GROVE</div>
-              <div style={{ fontFamily: "Fredoka, sans-serif", fontWeight: 600, fontSize: 18, color: c.blue, marginTop: 2, letterSpacing: 1 }}>PoGo</div>
+            <div style={{ display: "inline-block", background: "#fff", borderRadius: 24, padding: "14px 22px", boxShadow: `0 0 0 2px ${c.blueDeep}, 0 4px 0 ${c.blueDeep}` }}>
+              <div style={{ fontFamily: "Fredoka, sans-serif", fontWeight: 700, fontSize: 22, color: c.blueDeep, letterSpacing: 1, lineHeight: 1 }}>GARDEN GROVE</div>
+              <div style={{ fontFamily: "Fredoka, sans-serif", fontWeight: 600, fontSize: 15, color: c.blue, marginTop: 2, letterSpacing: 1 }}>PoGo</div>
             </div>
           )}
         </div>
 
-        <Paper c={c} accent={anyActive ? c.grassMid : c.blue} style={{ textAlign: "center", padding: "24px 22px" }}>
-          {/* Signed-in user header with photo */}
-          {isSignedIn ? (
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                {authUser.photoURL ? (
-                  <img src={authUser.photoURL} alt="" style={{ width: 36, height: 36, borderRadius: "50%", border: `2px solid ${c.paperEdge}` }} referrerPolicy="no-referrer" />
+        {/* ── Who you are. Asked once, here, and never again. ── */}
+        <Paper c={c} accent={hasIdentity ? c.grassMid : c.blue} style={{ padding: "18px 20px", marginBottom: 14 }}>
+          {hasIdentity ? (!editingName ? (
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              {isSignedIn ? (
+                authUser.photoURL ? (
+                  <img src={authUser.photoURL} alt="" style={{ width: 34, height: 34, borderRadius: "50%", border: `2px solid ${c.paperEdge}` }} referrerPolicy="no-referrer" />
                 ) : (
-                  <div style={{ width: 36, height: 36, borderRadius: "50%", background: c.blue + "33", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, color: c.blue, fontWeight: 700 }}>
-                    {signedInDisplayName[0]}
-                  </div>
-                )}
-                <div style={{ textAlign: "left" }}>
-                  <div style={{ fontSize: 14, fontWeight: 700, color: c.ink, lineHeight: 1.2 }}>{signedInDisplayName}</div>
-                  <div style={{ fontSize: 11, color: c.inkMute }}>{authUser.email}</div>
-                </div>
+                  <div style={{ width: 34, height: 34, borderRadius: "50%", background: c.blue + "33", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15, color: c.blue, fontWeight: 700 }}>{displayName[0]}</div>
+                )
+              ) : null}
+              <div style={{ flex: 1, minWidth: 0, textAlign: "left" }}>
+                <div style={{ fontSize: 12, color: c.inkMute, fontWeight: 600 }}>Playing as</div>
+                <div style={{ fontFamily: "Fredoka, sans-serif", fontWeight: 700, fontSize: 17, color: c.ink, lineHeight: 1.2, wordBreak: "break-word" }}>{displayName}</div>
               </div>
-              <button onClick={onSignOut} style={{
-                background: "transparent", border: "none", color: c.inkMute, fontSize: 11,
-                fontFamily: "Fredoka, sans-serif", fontWeight: 600, cursor: "pointer",
-                textDecoration: "underline",
-              }}>Sign out</button>
+              <button onClick={startEditing} style={{
+                background: "none", border: "none", padding: 0, cursor: "pointer",
+                fontFamily: "Fredoka, sans-serif", fontWeight: 600, fontSize: 12, color: c.blue, textDecoration: "underline",
+              }}>change</button>
             </div>
-          ) : null}
-
-          {/* Greeting */}
-          <h2 style={{ fontFamily: "Fredoka, sans-serif", fontSize: 20, fontWeight: 700, color: c.ink, marginBottom: 6 }}>{greeting}</h2>
-
-          {/* My Activity / My Passport links — signed-in only */}
-          {isSignedIn ? (
-            <div style={{ display: "flex", justifyContent: "center", gap: 8, marginBottom: 14 }}>
-              <button onClick={() => setView("activity")} style={{
-                background: c.blue + "14", border: `1.5px solid ${c.blue}33`, borderRadius: 10,
-                padding: "8px 16px", cursor: "pointer",
-                display: "inline-flex", alignItems: "center", gap: 6,
-                fontFamily: "Fredoka, sans-serif", fontWeight: 600, fontSize: 12, color: c.blue,
-              }}>
-                <Icon name="list" size={13} /> My Activity
-              </button>
-              <button onClick={() => setView("mypassport")} style={{
-                background: c.purple + "14", border: `1.5px solid ${c.purple}33`, borderRadius: 10,
-                padding: "8px 16px", cursor: "pointer",
-                display: "inline-flex", alignItems: "center", gap: 6,
-                fontFamily: "Fredoka, sans-serif", fontWeight: 600, fontSize: 12, color: c.purple,
-              }}>
-                <Icon name="trophy" size={13} /> My Passport
-              </button>
-            </div>
-          ) : null}
-
-          {/* Guest banner */}
-          {isGuest ? <GuestBanner c={c} onSignIn={onGoogleSignIn} /> : null}
-
-          {loading ? (
-            <p style={{ color: c.inkMute, fontSize: 13 }}>Checking for active events...</p>
-          ) : anyActive ? (
-            <>
-              <p style={{ color: c.inkSoft, fontSize: 13, marginBottom: 18 }}>There's an event happening now</p>
-              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                {/* v2.19.0: Code Drop is deliberately NOT listed here.
-                    This tile used to link straight to the claim page WITH
-                    the session's current claim token attached, so anyone
-                    who opened the plain Event Tools URL during a live
-                    Code Drop could take a code with no host involvement —
-                    which defeats the whole point of the rotating claim
-                    token, and defeats the host's control over who gets a
-                    code and when. Code Drop is now reachable only by
-                    scanning the QR the host physically presents. It is
-                    not advertised here at all: showing a tile people
-                    cannot use themselves would recreate the "what do I do
-                    now" confusion this screen exists to remove. */}
-                {gwActive ? (
-                  <div onClick={() => { window.location.href = window.location.pathname + "?gw_join=" + gwSession.id; }} style={{ cursor: "pointer" }}>
-                    <Paper c={c} accent={c.strawberry} style={{ padding: "16px 18px" }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-                        <IconBox emoji="🎁" bg={c.strawberry + "33"} border={c.strawDeep} size={48} fontSize={22} />
-                        <div style={{ flex: 1, textAlign: "left" }}>
-                          <div style={{ fontWeight: 700, fontSize: 18, color: c.ink, lineHeight: 1 }}>Giveaway</div>
-                          <div style={{ color: c.inkSoft, fontSize: 12, marginTop: 4 }}>Enter the raffle</div>
-                        </div>
-                        <div style={{ color: c.strawberry, fontSize: 24, fontWeight: 700 }}>›</div>
-                      </div>
-                    </Paper>
-                  </div>
-                ) : null}
-                {gcActive ? (
-                  <div onClick={() => { window.location.href = window.location.pathname + "?gc_spin=" + gcSession.id; }} style={{ cursor: "pointer" }}>
-                    <Paper c={c} accent={c.sun} style={{ padding: "16px 18px" }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-                        <IconBox emoji="🎰" bg={c.sun + "33"} border={c.sunDeep} size={48} fontSize={22} />
-                        <div style={{ flex: 1, textAlign: "left" }}>
-                          <div style={{ fontWeight: 700, fontSize: 18, color: c.ink, lineHeight: 1 }}>Gacha</div>
-                          <div style={{ color: c.inkSoft, fontSize: 12, marginTop: 4 }}>{gcSession.paused ? "Paused for a moment" : "Spin for a prize"}</div>
-                        </div>
-                        <div style={{ color: c.sunDeep, fontSize: 24, fontWeight: 700 }}>›</div>
-                      </div>
-                    </Paper>
-                  </div>
-                ) : null}
-                {ppActive ? (
-                  <PassportCheckIn c={c} session={ppSession} authUser={isSignedIn ? authUser : null} onGoogleSignIn={onGoogleSignIn} authBusy={authBusy} />
-                ) : null}
-              </div>
-            </>
           ) : (
             <>
-              <p style={{ color: c.inkSoft, fontSize: 13, marginBottom: 4 }}>Garden Grove PoGo community</p>
-              <div style={{ background: c.paperDim, borderRadius: 12, padding: "12px 14px", marginBottom: 18 }}>
-                <p style={{ fontSize: 13, color: c.inkSoft, lineHeight: 1.5 }}>No events are running right now. Check back during our next meetup!</p>
+              <NameField c={c} value={draftName} onChange={setDraftName} onSubmit={saveName} autoFocus />
+              <div style={{ display: "flex", gap: 8 }}>
+                <StickerBtn fill={c.grassMid} shadow={c.grassDeep} small disabled={!draftName.trim() || savingName} onClick={saveName} style={{ flex: 1 }}>
+                  {savingName ? "Saving…" : "Save"}
+                </StickerBtn>
+                <StickerBtn fill={c.paperDim} shadow={c.paperEdge} small onClick={() => setEditingName(false)} style={{ color: c.ink, flex: 1 }}>Cancel</StickerBtn>
               </div>
-              <div style={{ display: "flex", justifyContent: "center", gap: 20, marginBottom: 6 }}>
-                <a href="https://discord.gg/xk6AgkMgtv" target="_blank" rel="noopener noreferrer" style={{ textDecoration: "none", textAlign: "center" }}>
-                  <div style={{ width: 44, height: 44, borderRadius: "50%", background: c.purple + "22", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 4px" }}>
-                    <IconBox emoji="💬" bg="transparent" border="transparent" size={28} fontSize={18} />
-                  </div>
-                  <div style={{ fontSize: 11, color: c.inkSoft, fontWeight: 600 }}>Discord</div>
-                </a>
-                <a href="https://www.instagram.com/gardengrovepogo/" target="_blank" rel="noopener noreferrer" style={{ textDecoration: "none", textAlign: "center" }}>
-                  <div style={{ width: 44, height: 44, borderRadius: "50%", background: c.strawberry + "22", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 4px" }}>
-                    <IconBox emoji="📸" bg="transparent" border="transparent" size={28} fontSize={18} />
-                  </div>
-                  <div style={{ fontSize: 11, color: c.inkSoft, fontWeight: 600 }}>Instagram</div>
-                </a>
-                <a href={campfireUrl} target="_blank" rel="noopener noreferrer" style={{ textDecoration: "none", textAlign: "center" }}>
-                  <div style={{ width: 44, height: 44, borderRadius: "50%", background: c.orange + "22", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 4px" }}>
-                    <IconBox emoji="🔥" bg="transparent" border="transparent" size={28} fontSize={18} />
-                  </div>
-                  <div style={{ fontSize: 11, color: c.inkSoft, fontWeight: 600 }}>Campfire</div>
-                </a>
+            </>
+          )) : (
+            <>
+              <div style={{ fontFamily: "Fredoka, sans-serif", fontWeight: 700, fontSize: 18, color: c.ink, marginBottom: 4, textAlign: "center" }}>What should we call you?</div>
+              <div style={{ fontSize: 12.5, color: c.inkSoft, lineHeight: 1.5, marginBottom: 14, textAlign: "center" }}>
+                Set this once and everything below is a single tap.
+              </div>
+              <NameField c={c} value={draftName} onChange={setDraftName} onSubmit={saveName} />
+              <StickerBtn fill={c.grassMid} shadow={c.grassDeep} disabled={!draftName.trim() || savingName} onClick={saveName} style={{ width: "100%", fontSize: 16, padding: 13, marginBottom: 12 }}>
+                {savingName ? "Saving…" : "Let's go"}
+              </StickerBtn>
+              <div style={{ borderTop: `1.5px dashed ${c.paperEdge}`, paddingTop: 12, textAlign: "center" }}>
+                <div style={{ fontSize: 11.5, color: c.inkMute, marginBottom: 8, lineHeight: 1.4 }}>
+                  Signing in keeps your history and badges across meetups. Your Google name stays private.
+                </div>
+                <StickerBtn fill="#4285F4" shadow="#2a5db0" small onClick={onGoogleSignIn} disabled={authBusy} style={{ width: "100%", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+                  {authBusy ? "Signing in…" : "Sign in with Google"}
+                </StickerBtn>
+                {authError ? <div style={{ color: c.strawberry, fontSize: 11.5, fontWeight: 600, marginTop: 8 }}>{authError}</div> : null}
               </div>
             </>
           )}
-
-          {/* Sign-in section: only show chooser if not yet signed in or in guest mode */}
-          {showSignInChooser ? (
-            <div style={{ borderTop: `1.5px dashed ${c.paperEdge}`, marginTop: 18, paddingTop: 14 }}>
-              <CommunitySignInChooser c={c} onGoogleSignIn={onGoogleSignIn} onGuestMode={onGuestMode} authBusy={authBusy} authError={authError} />
-            </div>
-          ) : null}
         </Paper>
-        <div style={{ textAlign: "center", marginTop: 12 }}>
-          <a href="/privacy-policy/" target="_blank" rel="noopener noreferrer" style={{ color: c.inkMute, fontSize: 10, fontWeight: 600, fontFamily: "Fredoka, sans-serif" }}>Privacy Policy</a>
+
+        {/* ── What's on. The reason anyone opened this page. ── */}
+        {loading ? (
+          <Paper c={c} style={{ textAlign: "center", padding: "22px 20px", color: c.inkMute, fontSize: 13 }}>Checking what's on…</Paper>
+        ) : anyActive ? (
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            {gwActive ? (
+              <ToolTile
+                c={c} emoji="🎁" title="Giveaway"
+                subtitle="Enter the raffle"
+                done={gwEntered ? "You're entered" : null}
+                accent={c.strawberry} accentDeep={c.strawDeep}
+                onClick={() => { window.location.href = window.location.pathname + "?gw_join=" + gwSession.id; }}
+              />
+            ) : null}
+            {gcActive ? (
+              <ToolTile
+                c={c} emoji="🎰" title="Gacha"
+                subtitle="Spin for a prize"
+                done={gcWon ? `You won ${gcWon}` : null}
+                paused={!!gcSession.paused}
+                accent={c.sun} accentDeep={c.sunDeep}
+                onClick={() => { window.location.href = window.location.pathname + "?gc_spin=" + gcSession.id; }}
+              />
+            ) : null}
+            {ppActive ? (
+              <PassportCheckIn c={c} session={ppSession} authUser={isSignedIn ? authUser : null} onGoogleSignIn={onGoogleSignIn} authBusy={authBusy} />
+            ) : null}
+          </div>
+        ) : (
+          <Paper c={c} style={{ textAlign: "center", padding: "22px 20px" }}>
+            <div style={{ fontFamily: "Fredoka, sans-serif", fontWeight: 700, fontSize: 15, color: c.ink, marginBottom: 6 }}>Nothing running right now</div>
+            <p style={{ fontSize: 13, color: c.inkSoft, lineHeight: 1.5, marginBottom: 16 }}>Check back during our next meetup.</p>
+            <div style={{ display: "flex", justifyContent: "center", gap: 20 }}>
+              <a href="https://discord.gg/xk6AgkMgtv" target="_blank" rel="noopener noreferrer" style={{ textDecoration: "none", textAlign: "center" }}>
+                <div style={{ width: 42, height: 42, borderRadius: "50%", background: c.purple + "22", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 4px", fontSize: 18 }}>💬</div>
+                <div style={{ fontSize: 11, color: c.inkSoft, fontWeight: 600 }}>Discord</div>
+              </a>
+              <a href="https://www.instagram.com/gardengrovepogo/" target="_blank" rel="noopener noreferrer" style={{ textDecoration: "none", textAlign: "center" }}>
+                <div style={{ width: 42, height: 42, borderRadius: "50%", background: c.strawberry + "22", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 4px", fontSize: 18 }}>📸</div>
+                <div style={{ fontSize: 11, color: c.inkSoft, fontWeight: 600 }}>Instagram</div>
+              </a>
+              <a href={campfireUrl} target="_blank" rel="noopener noreferrer" style={{ textDecoration: "none", textAlign: "center" }}>
+                <div style={{ width: 42, height: 42, borderRadius: "50%", background: c.orange + "22", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 4px", fontSize: 18 }}>🔥</div>
+                <div style={{ fontSize: 11, color: c.inkSoft, fontWeight: 600 }}>Campfire</div>
+              </a>
+            </div>
+          </Paper>
+        )}
+
+        {/* ── One quiet footer row, replacing two competing chips, a
+             sign-out link and a separate privacy line. ── */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, flexWrap: "wrap", marginTop: 18 }}>
+          {isSignedIn ? (
+            <>
+              <button onClick={() => setView("mystuff")} style={{
+                background: "rgba(255,252,242,0.92)", border: `2px solid ${c.paperEdge}`, borderRadius: 999,
+                padding: "7px 15px", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 6,
+                fontFamily: "Fredoka, sans-serif", fontWeight: 700, fontSize: 12.5, color: c.ink,
+              }}>
+                <Icon name="trophy" size={13} /> My stuff
+              </button>
+              <button onClick={onSignOut} style={{
+                background: "none", border: "none", cursor: "pointer", padding: "4px 2px",
+                fontFamily: "Fredoka, sans-serif", fontWeight: 600, fontSize: 11.5,
+                color: "rgba(255,255,255,0.9)", textShadow: "0 1px 2px rgba(0,0,0,0.3)", textDecoration: "underline",
+              }}>Sign out</button>
+            </>
+          ) : isGuest ? (
+            <button onClick={onGoogleSignIn} disabled={authBusy} style={{
+              background: "none", border: "none", cursor: "pointer", padding: "4px 2px",
+              fontFamily: "Fredoka, sans-serif", fontWeight: 600, fontSize: 11.5,
+              color: "rgba(255,255,255,0.9)", textShadow: "0 1px 2px rgba(0,0,0,0.3)", textDecoration: "underline",
+            }}>Sign in to save your history</button>
+          ) : null}
+          <a href="/privacy-policy/" target="_blank" rel="noopener noreferrer" style={{
+            color: "rgba(255,255,255,0.75)", fontSize: 11, fontWeight: 600,
+            fontFamily: "Fredoka, sans-serif", textShadow: "0 1px 2px rgba(0,0,0,0.3)",
+          }}>Privacy</a>
         </div>
       </div>
     );
   }
 
-  // ───────────────────────────────────────────────────────────
-  // CODE DROP — HOST DASHBOARD
-  // ───────────────────────────────────────────────────────────
   function CodeDropApp({ setView, c }) {
     const [screen, setScreen] = useState("dashboard"); // dashboard | session | manage | history
     const [codes, setCodes] = useState([]);
@@ -3727,6 +3861,10 @@
   function CodeClaim({ c, sessionId, claimToken, authUser, onGoogleSignIn, onSignOut, authBusy, authError }) {
     const [stage, setStage] = useState("loading");
     const [name, setName] = useState(() => getSavedTrainerName());
+    // v2.20.0: a name is known if the door (or a previous meetup on this
+    // device) already gave us one. "change" flips this back to the field.
+    const [editingName, setEditingName] = useState(false);
+    const knownName = editingName ? false : !!name.trim();
     const [myCode, setMyCode] = useState(null);
     const [myReward, setMyReward] = useState(null);
     const fp = fingerprint();
@@ -3776,12 +3914,14 @@
     }, [authUser ? authUser.uid : null]);
 
     const claim = async () => {
-      // v2.12.23: one button, one path. A blank name has always been
-      // allowed to fall through to Anonymous/Signed-in Trainer below —
-      // there's no separate "anonymous" action anymore, just an empty
-      // optional field.
+      // v2.20.0: the name is required now, so there is no fallback. It
+      // used to become "Anonymous" or "Signed-in Trainer", which told the
+      // host nothing about who had taken a code — and several signed-in
+      // people leaving it blank produced a run of identical rows in the
+      // session log. The button below is disabled until this is filled.
       const trimmed = name.trim();
-      const claimName = trimmed || (authUser ? "Signed-in Trainer" : "Anonymous");
+      if (!trimmed) return;
+      const claimName = trimmed;
       const sess = await FB.get("cd:session");
       if (!sess || sess.id !== sessionId) return setStage("nosession");
       if (!tokenValid(sess)) return setStage("staletoken");
@@ -3932,11 +4072,19 @@
       </Paper>
     );
 
+    // v2.20.0: if a name is already known (typed at the door, or on this
+    // device from a previous meetup) this screen is one tap. The field
+    // only appears for someone who arrived by QR without ever passing
+    // the landing page, or who tapped "change".
     if (stage === "name") return wrap(
       <Paper c={c} accent={c.blue} style={{ textAlign: "center", padding: "28px 22px" }}>
         <h2 style={{ fontFamily: "Fredoka, sans-serif", fontSize: 20, fontWeight: 700, color: c.ink, marginBottom: 18 }}>Claim your code</h2>
-        <input value={name} onChange={e => setName(e.target.value)} onKeyDown={e => { if (e.key === "Enter") claim(); }} placeholder="Your name (optional)" style={{ textAlign: "left", fontSize: 16, marginBottom: 14, width: "100%", boxSizing: "border-box" }} maxLength={32} />
-        <StickerBtn fill={c.grassMid} shadow={c.grassDeep} onClick={() => claim()} style={{ width: "100%", fontSize: 16, padding: 14, marginBottom: 16 }}>
+        {knownName ? (
+          <PlayingAs c={c} name={name} onChange={() => setEditingName(true)} />
+        ) : (
+          <NameField c={c} value={name} onChange={setName} onSubmit={claim} />
+        )}
+        <StickerBtn fill={c.grassMid} shadow={c.grassDeep} disabled={!name.trim()} onClick={() => claim()} style={{ width: "100%", fontSize: 16, padding: 14, marginBottom: 16 }}>
           Claim code
         </StickerBtn>
         <div style={{ borderTop: `1.5px dashed ${c.paperEdge}`, paddingTop: 14 }}>
@@ -4061,6 +4209,10 @@
   function GiveawayClaim({ c, sessionId, authUser, onGoogleSignIn, onSignOut, authBusy, authError }) {
     const [stage, setStage] = useState("loading");
     const [name, setName] = useState(() => getSavedTrainerName());
+    // v2.20.0: a name is known if the door (or a previous meetup on this
+    // device) already gave us one. "change" flips this back to the field.
+    const [editingName, setEditingName] = useState(false);
+    const knownName = editingName ? false : !!name.trim();
     const [wonPrize, setWonPrize] = useState(null); // { name, type, code?, description?, confirmed? }
     const [entrantCount, setEntrantCount] = useState(null); // live count for attendee waiting screen
     // v2.13.8: drawing time/location for the "keep an eye on this" alert
@@ -4298,19 +4450,21 @@
 
     if (stage === "name") return wrap(
       <Paper c={c} accent={c.strawberry} style={{ textAlign: "center", padding: "28px 22px" }}>
-        <div style={{ display: "inline-flex", alignItems: "center", gap: 6, background: c.strawberry + "22", color: c.strawDeep, fontSize: 11, fontWeight: 700, padding: "5px 14px", borderRadius: 10, marginBottom: 16 }}>
-          <Icon name="gift" size={14} /> STEP 1 OF 2 · ENTER THE GIVEAWAY
-        </div>
+        {/* v2.20.0: the STEP 1 OF 2 pill is gone. It appeared on this one
+            tool, there was no step 2 to reach, and it promised more work
+            than entering actually takes. */}
         <h2 style={{ fontFamily: "Fredoka, sans-serif", fontSize: 19, fontWeight: 700, color: c.ink, marginBottom: 12 }}>Enter the giveaway</h2>
-        <OptionalProfileSignInCard c={c} authUser={authUser} authBusy={authBusy} authError={authError} onGoogleSignIn={onGoogleSignIn} onSignOut={onSignOut} flow="giveaway" />
-        <div style={{ textAlign: "left", marginBottom: 6 }}>
-          <label style={{ fontSize: 12, fontWeight: 700, color: c.inkSoft }}>Public trainer name</label>
-          <div style={{ fontSize: 11, color: c.inkMute, marginTop: 2 }}>This is what the host will call out if you win.</div>
-        </div>
-        <input value={name} onChange={e => setName(e.target.value)} onKeyDown={e => { if (e.key === "Enter") enter(false); }} placeholder="e.g. AshK" style={{ textAlign: "left", fontSize: 16, marginBottom: 14, width: "100%", boxSizing: "border-box" }} maxLength={32} />
+        {knownName ? (
+          <PlayingAs c={c} name={name} onChange={() => setEditingName(true)} />
+        ) : (
+          <NameField c={c} value={name} onChange={setName} onSubmit={() => enter(false)} />
+        )}
         <StickerBtn fill={c.strawberry} shadow={c.strawDeep} disabled={!name.trim()} onClick={() => enter(false)} style={{ width: "100%", fontSize: 16, padding: 14, marginBottom: 12 }}>
-          Enter Giveaway
+          Enter giveaway
         </StickerBtn>
+        <div style={{ borderTop: `1.5px dashed ${c.paperEdge}`, paddingTop: 14, marginTop: 4 }}>
+          <OptionalProfileSignInCard c={c} authUser={authUser} authBusy={authBusy} authError={authError} onGoogleSignIn={onGoogleSignIn} onSignOut={onSignOut} flow="giveaway" compact />
+        </div>
         <button onClick={() => enter(true)} style={{ background: "none", border: "none", color: c.inkMute, fontSize: 12, fontWeight: 600, cursor: "pointer", textDecoration: "underline", padding: 0 }}>
           Use a ticket number instead
         </button>
@@ -7469,6 +7623,10 @@
   function GachaSpin({ c, sessionId, authUser, onGoogleSignIn, onSignOut, authBusy, authError }) {
     const [stage, setStage] = useState("loading"); // loading | nosession | paused | empty | ready | spinning | reveal | error
     const [name, setName] = useState(() => getSavedTrainerName());
+    // v2.20.0: a name is known if the door (or a previous meetup on this
+    // device) already gave us one. "change" flips this back to the field.
+    const [editingName, setEditingName] = useState(false);
+    const knownName = editingName ? false : !!name.trim();
     const [prizes, setPrizes] = useState([]);
     const [won, setWon] = useState(null);
     const [reel, setReel] = useState("");
@@ -7545,8 +7703,12 @@
     }, [authUser ? authUser.uid : null]);
 
     const spin = async () => {
+      // v2.20.0: required, no fallback — a physical prize gets handed to
+      // a person, and "Signed-in Trainer" on the host's queue identifies
+      // nobody.
       const trimmed = name.trim();
-      const playerName = trimmed || (authUser ? "Signed-in Trainer" : "Anonymous");
+      if (!trimmed) return;
+      const playerName = trimmed;
 
       const sess = await FB.get("gc:session");
       if (!sess || sess.id !== sessionId) return setStage("nosession");
@@ -7760,7 +7922,10 @@
       <Paper c={c} accent={c.grassMid} style={{ textAlign: "center", padding: "28px 22px" }}>
         <IconBox emoji="🎉" bg={c.grassMid + "33"} border={c.grassDeep} size={72} fontSize={32} />
         <div style={{ height: 14 }} />
-        <div style={{ fontSize: 11, color: c.inkMute, letterSpacing: 2, fontWeight: 700, marginBottom: 8 }}>YOU GOT</div>
+        {/* v2.20.0: same win language as the Giveaway, which said
+            "You won!" while this said "YOU GOT". */}
+        <Banner c={c} fill={c.grassDeep} style={{ marginBottom: 14 }}>You won!</Banner>
+        <div style={{ fontSize: 11, color: c.inkMute, letterSpacing: 2, fontWeight: 700, marginBottom: 8 }}>YOUR PRIZE</div>
         <div style={{ fontFamily: "Fredoka, sans-serif", fontSize: 24, fontWeight: 700, color: c.ink, lineHeight: 1.2, marginBottom: won.description ? 6 : 14 }}>
           {won.prizeName}
         </div>
@@ -7790,8 +7955,17 @@
         ) : (
           <div style={{ background: c.orange + "1A", border: `2px solid ${c.orange}`, borderRadius: 14, padding: "14px 16px", marginBottom: 14 }}>
             <div style={{ fontWeight: 700, fontSize: 14, color: c.ink, marginBottom: 4 }}>Show this screen to a host</div>
-            <div style={{ fontSize: 12, color: c.inkSoft, lineHeight: 1.5 }}>
+            <div style={{ fontSize: 12, color: c.inkSoft, lineHeight: 1.5, marginBottom: 10 }}>
               {won.codePending ? "They'll sort out a code for you in person." : "They'll hand your prize over."}
+            </div>
+            {/* v2.20.0: the Giveaway teaches people that a host may ask
+                for their session code before handing anything over, and
+                this screen used to show neither that nor their name. */}
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, background: "#fff", borderRadius: 10, padding: "7px 12px", border: `2px solid ${c.paperEdge}` }}>
+              <span style={{ fontFamily: "Fredoka, sans-serif", fontWeight: 700, fontSize: 13, color: c.ink }}>{name.trim()}</span>
+              <span style={{ color: c.inkMute }}>·</span>
+              <span style={{ fontSize: 10, color: c.inkMute, letterSpacing: 1, fontWeight: 700 }}>SESSION</span>
+              <span style={{ fontFamily: "monospace", fontSize: 13, fontWeight: 700, color: c.ink, letterSpacing: 2 }}>{sessionCode(sessionId)}</span>
             </div>
           </div>
         )}
@@ -7805,7 +7979,10 @@
     );
 
     // stage === "ready"
-    const canSpin = authUser ? true : !!name.trim();
+    // v2.20.0: required for everyone. It used to be waived for signed-in
+    // users, whose blank name then became "Signed-in Trainer" on the
+    // host's hand-out queue.
+    const canSpin = !!name.trim();
     const inStock = prizes.filter(p => p.remaining > 0);
     return wrap(
       <Paper c={c} accent={c.sun} style={{ textAlign: "center", padding: "28px 22px" }}>
@@ -7825,11 +8002,14 @@
           </div>
         ) : null}
 
-        <input value={name} onChange={e => setName(e.target.value)} onKeyDown={e => { if (e.key === "Enter") { if (canSpin) spin(); } }} placeholder="Your name" style={{ textAlign: "left", fontSize: 16, marginBottom: 4, width: "100%", boxSizing: "border-box" }} maxLength={32} />
-        <div style={{ fontSize: 11, color: c.inkMute, textAlign: "left", marginBottom: 14, lineHeight: 1.4 }}>So the host knows who to hand a prize to.</div>
+        {knownName ? (
+          <PlayingAs c={c} name={name} onChange={() => setEditingName(true)} />
+        ) : (
+          <NameField c={c} value={name} onChange={setName} onSubmit={() => { if (canSpin) spin(); }} />
+        )}
 
         <StickerBtn fill={c.orange} shadow={c.orangeDeep} onClick={spin} disabled={!canSpin} style={{ width: "100%", fontSize: 18, padding: 16, marginBottom: 16 }}>
-          SPIN
+          Spin
         </StickerBtn>
 
         <div style={{ borderTop: `1.5px dashed ${c.paperEdge}`, paddingTop: 14 }}>
@@ -8337,9 +8517,9 @@
           // with a full sentence of muted copy; now a full-width sun
           // button with badge-earning copy, one line of body text.
           <div style={{ background: c.blue + "14", border: `2px solid ${c.blue}`, borderRadius: 14, padding: "12px 14px" }}>
-            <div style={{ fontSize: 12, color: c.inkSoft, lineHeight: 1.5, marginBottom: 10 }}>Sign in to check in and save badges.</div>
+            <div style={{ fontSize: 12, color: c.inkSoft, lineHeight: 1.5, marginBottom: 10 }}>Checking in needs an account, so your stamps and badges have somewhere to go.</div>
             <StickerBtn fill={c.sun} shadow={c.sunDeep} onClick={onGoogleSignIn} disabled={authBusy} style={{ width: "100%", color: c.ink, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
-              <Icon name="trophy" size={16} /> {authBusy ? "Signing in…" : "Log in to earn a badge!"}
+              {authBusy ? "Signing in…" : "Sign in with Google"}
             </StickerBtn>
           </div>
         ) : checkedIn ? (
@@ -8468,9 +8648,9 @@
               // v2.13.7: same brightened treatment as PassportCheckIn's
               // sign-in gate above.
               <div style={{ background: c.blue + "14", border: `2px solid ${c.blue}`, borderRadius: 14, padding: "12px 14px" }}>
-                <div style={{ fontSize: 12, color: c.inkSoft, lineHeight: 1.5, marginBottom: 10 }}>Sign in to check in and save badges.</div>
+                <div style={{ fontSize: 12, color: c.inkSoft, lineHeight: 1.5, marginBottom: 10 }}>Checking in needs an account, so your stamps and badges have somewhere to go.</div>
                 <StickerBtn fill={c.sun} shadow={c.sunDeep} onClick={onGoogleSignIn} disabled={authBusy} style={{ width: "100%", color: c.ink, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
-                  <Icon name="trophy" size={16} /> {authBusy ? "Signing in…" : "Log in to earn a badge!"}
+                  {authBusy ? "Signing in…" : "Sign in with Google"}
                 </StickerBtn>
                 {authError ? <div style={{ fontSize: 11, color: c.strawDeep, fontWeight: 600, marginTop: 8 }}>{authError}</div> : null}
               </div>
@@ -8494,7 +8674,7 @@
   // unsplit by type; named badges grouped by event type per explicit
   // design decision, with a type filter for larger collections.
   // ───────────────────────────────────────────────────────────
-  function MyPassport({ setView, c, authUser }) {
+  function MyPassport({ setView, c, authUser, embedded }) {
     const [badges, setBadges] = useState(undefined);
     const [checkInCount, setCheckInCount] = useState(0);
     const [shareable, setShareable] = useState(false);
@@ -8533,14 +8713,18 @@
     if (badges === undefined) return <CenterMsg c={c} text="Loading…" />;
 
     return (
-      <div style={{ maxWidth: 460, margin: "0 auto" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20 }}>
-          <BackButton c={c} onClick={() => setView("home")} />
-          <div style={{ flex: 1 }}>
-            <div style={{ fontWeight: 700, fontSize: 20, color: "#fff", textShadow: "0 2px 4px rgba(0,0,0,0.25)", lineHeight: 1.1 }}>My passport</div>
-            <div style={{ fontSize: 13, color: c.grassMid, fontWeight: 600, marginTop: 2 }}>{checkInCount} check-in{checkInCount !== 1 ? 's' : ''} &middot; {badges.filter(b => b.kind === "named").length} event badge{badges.filter(b => b.kind === "named").length !== 1 ? 's' : ''}</div>
+      <div style={embedded ? {} : { maxWidth: 460, margin: "0 auto" }}>
+        {/* v2.20.0: embedded inside My stuff, this section drops its own
+            header — one screen, one title. */}
+        {embedded ? null : (
+          <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20 }}>
+            <BackButton c={c} onClick={() => setView("home")} />
+            <div style={{ flex: 1 }}>
+              <div style={{ fontWeight: 700, fontSize: 20, color: "#fff", textShadow: "0 2px 4px rgba(0,0,0,0.25)", lineHeight: 1.1 }}>My passport</div>
+              <div style={{ fontSize: 13, color: c.grassMid, fontWeight: 600, marginTop: 2 }}>{checkInCount} check-in{checkInCount !== 1 ? 's' : ''} &middot; {badges.filter(b => b.kind === "named").length} event badge{badges.filter(b => b.kind === "named").length !== 1 ? 's' : ''}</div>
+            </div>
           </div>
-        </div>
+        )}
 
         <Paper c={c} style={{ marginBottom: 16 }}>
           <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: c.inkSoft, fontWeight: 600, cursor: "pointer" }}>
@@ -8570,6 +8754,31 @@
   // ?passport={uid} link). Kept as one component so the two views
   // can never visually drift apart.
   // ───────────────────────────────────────────────────────────
+  // v2.20.0: My Activity and My Passport merged.
+  //
+  // They were two undifferentiated chips on the landing page asking
+  // people to choose between "what I've done" and "what I've done",
+  // and the app was already confused about which was which: My Activity
+  // was subtitled "Check-in History" while check-ins actually lived in
+  // the Passport. One screen, badges first because they are the reward,
+  // then the timeline underneath.
+  function MyStuff({ setView, c, authUser }) {
+    return (
+      <div style={{ maxWidth: 460, margin: "0 auto" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20 }}>
+          <BackButton c={c} onClick={() => setView("home")} />
+          <div style={{ flex: 1 }}>
+            <div style={{ fontWeight: 700, fontSize: 22, color: "#fff", textShadow: "0 2px 4px rgba(0,0,0,0.25)", lineHeight: 1.1 }}>My stuff</div>
+            <div style={{ fontSize: 13, color: "rgba(255,255,255,0.85)", fontWeight: 600, marginTop: 2, textShadow: "0 1px 2px rgba(0,0,0,0.25)" }}>Badges and everything you've done at our meetups</div>
+          </div>
+        </div>
+        <MyPassport setView={setView} c={c} authUser={authUser} embedded />
+        <div style={{ height: 6 }} />
+        <ActivityHistory setView={setView} c={c} authUser={authUser} embedded />
+      </div>
+    );
+  }
+
   function PassportBadgeDisplay({ c, badges, thresholds }) {
     const [filterType, setFilterType] = useState("all");
 
@@ -9281,7 +9490,7 @@
   // Bump this with every release so the live page always shows what's
   // actually deployed — no more guessing whether a paste went through,
   // or which version is live when reporting a field issue.
-  const APP_VERSION = "v2.19.0";
+  const APP_VERSION = "v2.20.0";
 
   function VersionFooter() {
     return (
@@ -9448,19 +9657,19 @@
     // Public attendee claim flow — accessible to guests, but now receives
     // auth state/handlers so the page can offer optional Google sign-in.
     if (claimSession) {
-      return <div style={pageStyle}><CodeClaim c={c} sessionId={claimSession} claimToken={claimToken} authUser={authUser} onGoogleSignIn={startGoogleSignIn} onSignOut={signOutCommunity} authBusy={authBusy} authError={authError} /><DiagnosticsPanel enabled={showDiagnostics} /><VersionFooter /></div>;
+      return <div style={pageStyle}><AttendeeShell c={c} currentTool="code"><CodeClaim c={c} sessionId={claimSession} claimToken={claimToken} authUser={authUser} onGoogleSignIn={startGoogleSignIn} onSignOut={signOutCommunity} authBusy={authBusy} authError={authError} /></AttendeeShell><DiagnosticsPanel enabled={showDiagnostics} /><VersionFooter /></div>;
     }
 
     // Public giveaway entry flow — accessible to guests, but now receives
     // auth state/handlers so the page can offer optional Google sign-in.
     if (joinSession) {
-      return <div style={pageStyle}><GiveawayClaim c={c} sessionId={joinSession} authUser={authUser} onGoogleSignIn={startGoogleSignIn} onSignOut={signOutCommunity} authBusy={authBusy} authError={authError} /><DiagnosticsPanel enabled={showDiagnostics} /><VersionFooter /></div>;
+      return <div style={pageStyle}><AttendeeShell c={c} currentTool="giveaway"><GiveawayClaim c={c} sessionId={joinSession} authUser={authUser} onGoogleSignIn={startGoogleSignIn} onSignOut={signOutCommunity} authBusy={authBusy} authError={authError} /></AttendeeShell><DiagnosticsPanel enabled={showDiagnostics} /><VersionFooter /></div>;
     }
 
     // Public gacha spin flow — guest-allowed like Code Drop/Giveaway,
     // with the same optional Google sign-in offered alongside it.
     if (spinSession) {
-      return <div style={pageStyle}><GachaSpin c={c} sessionId={spinSession} authUser={authUser} onGoogleSignIn={startGoogleSignIn} onSignOut={signOutCommunity} authBusy={authBusy} authError={authError} /><DiagnosticsPanel enabled={showDiagnostics} /><VersionFooter /></div>;
+      return <div style={pageStyle}><AttendeeShell c={c} currentTool="gacha"><GachaSpin c={c} sessionId={spinSession} authUser={authUser} onGoogleSignIn={startGoogleSignIn} onSignOut={signOutCommunity} authBusy={authBusy} authError={authError} /></AttendeeShell><DiagnosticsPanel enabled={showDiagnostics} /><VersionFooter /></div>;
     }
 
     // Public shareable passport view — no sign-in required to VIEW,
@@ -9494,7 +9703,6 @@
             c={c}
             authUser={authUser}
             onSave={(savedName) => { setProfileTrainerName(savedName); setNeedsTrainerName(false); }}
-            onSkip={() => setNeedsTrainerName(false)}
           />
           <DiagnosticsPanel enabled={showDiagnostics} /><VersionFooter />
         </div>
@@ -9508,6 +9716,9 @@
     const showBranding = view === "branding" ? isHost : false;
     const showStats = view === "stats" ? isHost : false;
     const showActivity = view === "activity" ? !!authUser : false;
+    // v2.20.0: the merged screen the landing page now links to. The two
+    // old views still resolve, so a bookmark or a stale link keeps working.
+    const showMyStuff = view === "mystuff" ? !!authUser : false;
     const showPassport = view === "passport" ? isHost : false;
     const showPassportSettings = view === "passportsettings" ? isHost : false;
     const showMyPassport = view === "mypassport" ? !!authUser : false;
@@ -9523,6 +9734,7 @@
           profileTrainerName={profileTrainerName}
         /> : null}
         {showActivity ? <ActivityHistory setView={setView} c={c} authUser={authUser} /> : null}
+        {showMyStuff ? <MyStuff setView={setView} c={c} authUser={authUser} /> : null}
         {showCodeDrop ? <CodeDropApp setView={setView} c={c} /> : null}
         {showGiveaway ? <GiveawayApp setView={setView} c={c} /> : null}
         {showGacha ? <GachaApp setView={setView} c={c} /> : null}
