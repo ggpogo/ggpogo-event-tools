@@ -1,46 +1,27 @@
 <!--
-  v2.20.0 — one app instead of three
-  The experience rework the v2.19.0 audit set up. Attendee-facing only;
-  no host screens and no Firebase rules change.
-  IDENTITY, ASKED ONCE
-  - The landing page collected a guest name into one storage key while
-    every tool prefilled from another, so someone typed their name at the
-    door and got an empty field on the very next screen. One writer now
-    feeds both, and the door is the only place anyone types a name.
-  - A name is now required everywhere. It used to become "Anonymous" or
-    "Signed-in Trainer", which identifies nobody at a prize table and put
-    rows of identical entries on the host's list. The name chooser's
-    "Skip for now" is gone for the same reason.
-  - It is always a chosen name, never the Google account name: signing in
-    hands us a real full name, and that gets read aloud at raffles.
-  - Once a name is known, every tool is one tap, with a quiet
-    "Playing as X, change" line where the form used to be.
-  NAVIGATION
-  - Every attendee flow is wrapped in a shared shell: a way back to the
-    event list, and one-tap links to whatever else is running. None of
-    the three screens previously had any navigation at all, so the only
-    ways out were editing the URL or rescanning a QR — which is why
-    people stalled after entering. Code Drop is excluded from the
-    cross-links since it is host-presented.
-  LANDING PAGE
-  - Cut from nine stacked elements to four: logo, who you are, the live
-    tiles, one quiet footer row. The tiles people scanned a QR to reach
-    used to sit fourth, under two rows about their account.
-  - Tiles are real buttons with a pressed state, they say what you have
-    already done ("You're entered", "You won a Lure Pin") instead of
-    looking identical before and after, and a paused tool now looks
-    paused rather than changing one line of 12px text.
-  - My Activity and My Passport are merged into My stuff. They were two
-    identical-looking chips for the same idea, and the app was already
-    confused about which held what.
-  CONSISTENCY
-  - One name field, one label, one helper line, one position.
-  - One sign-in sentence. It was sold as history, badges, passport
-    progress, progress, and profile, in five places.
-  - Gacha's handoff card now carries the winner's name and session code,
-    which the Giveaway teaches people a host may ask for.
-  - Matching win language, button casing, and no more STEP 1 OF 2 on the
-    one tool that had it and had no step 2.
+  v2.21.0 — Gacha: the capsule animation
+  Replaces the gacha spin's text reel, which cycled prize names in a
+  dashed box, with a capsule that drops in, shakes twice with a real
+  beat between each, and bursts open in a scatter of three stars.
+  - Timed to 1.49s end to end, matching the reel it replaces almost
+    exactly. Two shakes rather than three is what buys that: a nicer
+    animation should not slow down a queue at the prize table. The pause
+    after each shake is doing the work — shaking continuously reads as
+    loading, separated shakes read as a decision being made.
+  - The stars are inline SVG paths whose own stroke is round-joined and
+    the same colour as the fill, which fattens each star and rounds all
+    ten corners at once. They are unevenly spaced and staggered on
+    purpose: an even fan reads as a mechanical starburst.
+  - Nothing about the result changed. As before, the prize is drawn and
+    written to the database before any of this plays, so the animation
+    only ever covers the wait and can never show something the database
+    has not committed.
+  - Transforms and opacity only, no images and no library, so it stays
+    smooth on the older phones at a meetup. Respects reduced-motion by
+    cutting straight to the reveal.
+  - The label above the capsule now tracks the animation rather than
+    sitting on a static "SPINNING..." throughout.
+  No Firebase rules change in this release.
   Full history: ggpogo-event-tools-CHANGELOG.md
 -->
 <div id="ggpogo-event-tools-root" style="min-height: 100vh; width: 100%;"></div>
@@ -92,6 +73,158 @@
   @media (max-width: 400px) {
     .gg-date-row { flex-direction: column; }
     .gg-date-row > div { flex: none; }
+  }
+
+  /* ─────────────────────────────────────────────────────────────
+     v2.21.0 — GACHA CAPSULE ANIMATION
+     Replaces the old text reel on the gacha spin screen. A capsule
+     drops in, shakes twice with a real beat between (the pause is what
+     makes it read as suspense rather than a loading spinner), then
+     bursts open in a scatter of three stars.
+     Timed to 1.49s end to end, matching the reel it replaces, so a
+     queue at the prize table moves no slower than before.
+     Phase classes are set from React; everything here is transform and
+     opacity only, which is what keeps it smooth on older phones.
+     ───────────────────────────────────────────────────────────── */
+  .ggc-arena {
+    position: relative; width: 100%; height: 178px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .ggc-capsule {
+    position: relative; width: 124px; height: 124px;
+    transform-origin: 50% 92%;
+  }
+  .ggc-half {
+    position: absolute; left: 0; width: 124px; height: 62px;
+    border: 4px solid #fff; box-sizing: border-box;
+  }
+  .ggc-top {
+    top: 0; border-radius: 62px 62px 4px 4px; border-bottom: none;
+    background: #E8635F;
+    box-shadow: inset 0 6px 0 rgba(255,255,255,0.34), 0 0 0 2.5px #B8322E;
+  }
+  .ggc-bottom {
+    top: 62px; border-radius: 4px 4px 62px 62px; border-top: none;
+    background: #F5EFDC;
+    box-shadow: inset 0 -6px 0 rgba(13,45,82,0.09), 0 0 0 2.5px #E8DEC0;
+  }
+  .ggc-band {
+    position: absolute; top: 56px; left: -3px; width: 130px; height: 12px;
+    background: #0D2D52; border-radius: 3px; z-index: 3;
+  }
+  .ggc-latch {
+    position: absolute; top: 45px; left: 50%; margin-left: -17px;
+    width: 34px; height: 34px; border-radius: 50%;
+    background: #fff; border: 4px solid #0D2D52; z-index: 4;
+  }
+  .ggc-latch::after {
+    content: ""; position: absolute; inset: 5px; border-radius: 50%;
+    background: #F5C842; border: 2px solid #A87B08;
+  }
+  .ggc-shine {
+    position: absolute; top: 15px; left: 21px; width: 28px; height: 16px;
+    background: rgba(255,255,255,0.55); border-radius: 50%;
+    transform: rotate(-24deg); z-index: 2;
+  }
+  .ggc-shadow {
+    position: absolute; bottom: 4px; left: 50%; margin-left: -43px;
+    width: 86px; height: 14px; border-radius: 50%;
+    background: rgba(13,45,82,0.16); filter: blur(2px);
+  }
+
+  /* Stars: fill and stroke are both currentColor with a round join, so
+     the stroke fattens each star and rounds all ten corners at once —
+     a clip-path polygon can only cut hard points. */
+  .ggc-burst { position: absolute; inset: 0; opacity: 0; pointer-events: none; }
+  .ggc-star { position: absolute; left: 50%; top: 50%; width: 0; height: 0; }
+  .ggc-pip {
+    position: absolute; left: 0; top: 0; display: block; overflow: visible;
+    width: var(--ggc-size); height: var(--ggc-size);
+    margin: calc(var(--ggc-size) / -2);
+  }
+  .ggc-trail {
+    position: absolute; right: 0; top: 0; height: 4px; width: var(--ggc-trail);
+    margin-top: -2px; border-radius: 4px;
+    background: linear-gradient(to left, currentColor, transparent);
+    transform-origin: 100% 50%;
+  }
+
+  @keyframes ggcDropIn {
+    0%   { transform: translateY(-180px) scale(0.65); opacity: 0; }
+    62%  { transform: translateY(10px) scale(1.06); opacity: 1; }
+    80%  { transform: translateY(-8px) scale(0.98); }
+    100% { transform: translateY(0) scale(1); opacity: 1; }
+  }
+  @keyframes ggcShake {
+    0%   { transform: rotate(0deg) translateX(0); }
+    18%  { transform: rotate(-15deg) translateX(-7px); }
+    46%  { transform: rotate(14deg) translateX(7px); }
+    72%  { transform: rotate(-7deg) translateX(-3px); }
+    100% { transform: rotate(0deg) translateX(0); }
+  }
+  @keyframes ggcLatchBlink {
+    0%, 100% { background: #F5C842; border-color: #A87B08; }
+    50%      { background: #fff; border-color: #F5C842; }
+  }
+  @keyframes ggcPopTop {
+    0%   { transform: translateY(0) rotate(0deg); opacity: 1; }
+    100% { transform: translateY(-142px) rotate(-34deg); opacity: 0; }
+  }
+  @keyframes ggcPopBottom {
+    0%   { transform: translateY(0) rotate(0deg); opacity: 1; }
+    100% { transform: translateY(44px) rotate(9deg); opacity: 0; }
+  }
+  @keyframes ggcBurstOn { 0% { opacity: 0; } 12% { opacity: 1; } 100% { opacity: 1; } }
+  @keyframes ggcStarFly {
+    0%   { transform: rotate(var(--ggc-ang)) translateX(6px) scale(0.2); opacity: 0; }
+    18%  { opacity: 1; }
+    70%  { opacity: 1; }
+    100% { transform: rotate(var(--ggc-ang)) translateX(var(--ggc-dist)) scale(1); opacity: 0; }
+  }
+  @keyframes ggcPipSpin { 0% { transform: rotate(0deg); } 100% { transform: rotate(var(--ggc-spin)); } }
+  @keyframes ggcTrailStretch {
+    0%   { transform: scaleX(0); opacity: 0; }
+    30%  { transform: scaleX(1); opacity: 0.9; }
+    100% { transform: scaleX(0.25); opacity: 0; }
+  }
+  @keyframes ggcSettleGlow {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(245,200,66,0); }
+    50%      { box-shadow: 0 0 0 15px rgba(245,200,66,0.32); }
+  }
+
+  .ggc-capsule.is-drop { animation: ggcDropIn 280ms cubic-bezier(.34,1.3,.64,1) both; }
+  .ggc-capsule.is-shake { animation: ggcShake 280ms ease-in-out both; }
+  .ggc-capsule.is-shake .ggc-latch {
+    animation: ggcShake 280ms ease-in-out both, ggcLatchBlink 280ms ease-in-out both;
+  }
+  .ggc-capsule.is-pop .ggc-top,
+  .ggc-capsule.is-pop .ggc-band,
+  .ggc-capsule.is-pop .ggc-latch { animation: ggcPopTop 340ms cubic-bezier(.3,-0.2,.7,1) both; }
+  .ggc-capsule.is-pop .ggc-bottom { animation: ggcPopBottom 340ms ease-in both; }
+  .ggc-capsule.is-pop .ggc-shadow { opacity: 0; }
+  .ggc-capsule.is-hidden { opacity: 0; }
+  .ggc-arena.is-settle .ggc-capsule { animation: ggcSettleGlow 180ms ease-out both; }
+  .ggc-arena.is-burst .ggc-burst { animation: ggcBurstOn 560ms linear both; }
+  .ggc-arena.is-burst .ggc-star {
+    animation: ggcStarFly 545ms cubic-bezier(.15,.75,.35,1) var(--ggc-delay) both;
+  }
+  .ggc-arena.is-burst .ggc-pip {
+    animation: ggcPipSpin 545ms linear var(--ggc-delay) both;
+  }
+  .ggc-arena.is-burst .ggc-trail {
+    animation: ggcTrailStretch 545ms ease-out var(--ggc-delay) both;
+  }
+
+  /* Anyone who has asked for less motion gets the result, not the show. */
+  @media (prefers-reduced-motion: reduce) {
+    .ggc-capsule.is-drop, .ggc-capsule.is-shake, .ggc-capsule.is-shake .ggc-latch,
+    .ggc-capsule.is-pop .ggc-top, .ggc-capsule.is-pop .ggc-band,
+    .ggc-capsule.is-pop .ggc-latch, .ggc-capsule.is-pop .ggc-bottom,
+    .ggc-arena.is-settle .ggc-capsule, .ggc-arena.is-burst .ggc-burst,
+    .ggc-arena.is-burst .ggc-star, .ggc-arena.is-burst .ggc-pip,
+    .ggc-arena.is-burst .ggc-trail {
+      animation-duration: 1ms !important;
+    }
   }
 </style>
 
@@ -1353,6 +1486,62 @@
           fontFamily: "Fredoka, sans-serif", fontWeight: 600, fontSize: 12,
           color: c.blue, textDecoration: "underline",
         }}>change</button>
+      </div>
+    );
+  }
+
+  // v2.21.0: the gacha capsule. `phase` is driven from GachaSpin's timers
+  // (drop → shake → settle → pop), and the CSS in the page's style block
+  // does the rest. Three stars, deliberately unevenly spaced — an even
+  // fan reads as a mechanical starburst, a scattered one as something
+  // thrown.
+  const GGC_STAR_PATH = "M50.0,10.0 L60.0,36.2 L88.0,37.6 L66.2,55.3 L73.5,82.4 L50.0,67.0 L26.5,82.4 L33.8,55.3 L12.0,37.6 L40.0,36.2 Z";
+  const GGC_STARS = [
+    { ang: -100, dist: 96, size: 34, trail: 34, spin: 190, delay: 0, color: "#F5C842" },
+    { ang: -40, dist: 82, size: 27, trail: 28, spin: -165, delay: 55, color: "#F08838" },
+    { ang: -146, dist: 70, size: 22, trail: 24, spin: 225, delay: 105, color: "#E8635F" },
+  ];
+
+  function GachaCapsule({ phase }) {
+    let capsuleClass = "ggc-capsule";
+    if (phase === "drop") capsuleClass = "ggc-capsule is-drop";
+    if (phase === "shake") capsuleClass = "ggc-capsule is-shake";
+    if (phase === "pop") capsuleClass = "ggc-capsule is-pop";
+    if (phase === "done") capsuleClass = "ggc-capsule is-hidden";
+
+    let arenaClass = "ggc-arena";
+    if (phase === "settle") arenaClass = "ggc-arena is-settle";
+    if (phase === "pop") arenaClass = "ggc-arena is-burst";
+    if (phase === "done") arenaClass = "ggc-arena is-burst";
+
+    return (
+      <div className={arenaClass}>
+        <div className="ggc-burst">
+          {GGC_STARS.map((st, i) => (
+            <i key={i} className="ggc-star" style={{
+              color: st.color,
+              "--ggc-ang": `${st.ang}deg`,
+              "--ggc-dist": `${st.dist}px`,
+              "--ggc-size": `${st.size}px`,
+              "--ggc-trail": `${st.trail}px`,
+              "--ggc-spin": `${st.spin}deg`,
+              "--ggc-delay": `${st.delay}ms`,
+            }}>
+              <b className="ggc-trail" />
+              <svg className="ggc-pip" viewBox="0 0 100 100">
+                <path d={GGC_STAR_PATH} fill="currentColor" stroke="currentColor" strokeWidth="15" strokeLinejoin="round" />
+              </svg>
+            </i>
+          ))}
+        </div>
+        <div className={capsuleClass}>
+          <div className="ggc-shadow" />
+          <div className="ggc-half ggc-top" />
+          <div className="ggc-half ggc-bottom" />
+          <div className="ggc-shine" />
+          <div className="ggc-band" />
+          <div className="ggc-latch" />
+        </div>
       </div>
     );
   }
@@ -7629,7 +7818,10 @@
     const knownName = editingName ? false : !!name.trim();
     const [prizes, setPrizes] = useState([]);
     const [won, setWon] = useState(null);
-    const [reel, setReel] = useState("");
+    // v2.21.0: replaces the old text reel. Phases are timed below and
+    // read by GachaCapsule.
+    const [spinPhase, setSpinPhase] = useState("idle");
+    const phaseTimersRef = useRef([]);
     // v2.19.0: distinguishes "arrived at an empty machine" from "spun and
     // the last prize went mid-spin", which need different words.
     const [emptyAfterSpin, setEmptyAfterSpin] = useState(false);
@@ -7664,9 +7856,21 @@
       setStage("reveal");
     };
 
+    // v2.21.0: the capsule sequence is a chain of timers, so anything
+    // that abandons a spin — a re-check, or the component unmounting
+    // because someone navigated away mid-spin — has to cancel them or
+    // they fire against a screen that has moved on.
+    const clearPhaseTimers = () => {
+      phaseTimersRef.current.forEach(clearTimeout);
+      phaseTimersRef.current = [];
+    };
+    useEffect(() => clearPhaseTimers, []);
+
     const check = async () => {
       // Re-checking is a fresh look at the machine, so the post-spin
       // wording and any stranded error details are cleared first.
+      clearPhaseTimers();
+      setSpinPhase("idle");
       setEmptyAfterSpin(false);
       setErrorInfo(null);
       const sess = await FB.get("gc:session");
@@ -7720,26 +7924,54 @@
         return revealFromRecord(already, freshList);
       }
 
+      // v2.21.0: the drop phase is set in the same batch as the stage, so
+      // the capsule's very first rendered frame is already mid-drop. Left
+      // to a 0ms timer it could paint once sitting at rest first, which
+      // shows up as a flicker before the animation starts.
       setStage("spinning");
+      setSpinPhase("drop");
       const spinStartedAt = Date.now();
       const pool = gachaPrizesObjToArray(await FB.get("gc:prizes"));
       setPrizes(pool);
 
-      // Reel animation runs while the real claim happens underneath, so
-      // the spin never shows a result the database hasn't committed.
-      const reelNames = pool.filter(p => p.remaining > 0).map(p => p.name);
-      let reelTick = 0;
-      const reelTimer = setInterval(() => {
-        if (reelNames.length === 0) return;
-        setReel(reelNames[reelTick % reelNames.length]);
-        reelTick++;
-      }, 90);
+      // v2.21.0: the capsule animation runs while the real claim happens
+      // underneath, so the spin never shows a result the database hasn't
+      // committed. Two shakes rather than three keeps the whole sequence
+      // at 1.49s, matching the reel this replaced — a nicer animation
+      // shouldn't slow down a queue at the prize table.
+      //
+      // The beats: drop 280, settle 70, then two shakes of 280 with a
+      // 90ms pause after each, a 180ms glow, and a 340ms pop whose last
+      // 120ms overlaps the prize landing.
+      const PHASES = [
+        { at: 350, phase: "shake" },
+        { at: 720, phase: "shake2" },
+        { at: 1090, phase: "settle" },
+        { at: 1270, phase: "pop" },
+      ];
+      clearPhaseTimers();
+      PHASES.forEach(step => {
+        phaseTimersRef.current.push(setTimeout(() => {
+          // Both shake steps use the same CSS class; toggling through a
+          // neutral phase first is what restarts the animation for the
+          // second shake rather than leaving it already finished.
+          if (step.phase === "shake2") {
+            setSpinPhase("between");
+            phaseTimersRef.current.push(setTimeout(() => setSpinPhase("shake"), 20));
+          } else {
+            setSpinPhase(step.phase);
+          }
+        }, step.at));
+      });
+
+      const SPIN_MS = 1490;
       const finish = (fn) => {
-        // Always give the reel a moment to read as a spin, even when the
-        // writes come back almost instantly on a good connection.
+        // Hold the reveal until the animation has actually played, even
+        // when the writes come back almost instantly on a good
+        // connection.
         const elapsed = Date.now() - spinStartedAt;
-        const wait = Math.max(0, 1500 - elapsed);
-        setTimeout(() => { clearInterval(reelTimer); fn(); }, wait);
+        const wait = Math.max(0, SPIN_MS - elapsed);
+        phaseTimersRef.current.push(setTimeout(() => { setSpinPhase("done"); fn(); }, wait));
       };
 
       // Take stock first — that's the scarce thing. Losing a race for a
@@ -7903,20 +8135,18 @@
       </Paper>
     );
 
-    if (stage === "spinning") return wrap(
-      <Paper c={c} accent={c.sun} style={{ textAlign: "center", padding: "36px 24px" }}>
-        <div style={{ fontSize: 11, color: c.inkMute, letterSpacing: 2, fontWeight: 700, marginBottom: 14 }}>SPINNING…</div>
-        <div style={{
-          background: c.paperDim, borderRadius: 16, padding: "26px 16px",
-          border: `2.5px dashed ${c.paperEdge}`, minHeight: 40,
-          display: "flex", alignItems: "center", justifyContent: "center",
-          fontFamily: "Fredoka, sans-serif", fontSize: 20, fontWeight: 700, color: c.ink,
-          wordBreak: "break-word",
-        }}>
-          {reel || "…"}
-        </div>
-      </Paper>
-    );
+    // v2.21.0: the capsule replaces the text reel. The label tracks the
+    // phase so the copy builds with the animation instead of sitting on
+    // a static "SPINNING…" the whole way through.
+    if (stage === "spinning") {
+      const spinLabel = spinPhase === "pop" ? "" : spinPhase === "settle" ? "ALMOST…" : spinPhase === "drop" ? "HERE WE GO…" : "SHAKING…";
+      return wrap(
+        <Paper c={c} accent={c.sun} style={{ textAlign: "center", padding: "24px 20px" }}>
+          <div style={{ fontSize: 11, color: c.inkMute, letterSpacing: 2, fontWeight: 700, minHeight: 14 }}>{spinLabel}</div>
+          <GachaCapsule phase={spinPhase} />
+        </Paper>
+      );
+    }
 
     if (stage === "reveal") return wrap(
       <Paper c={c} accent={c.grassMid} style={{ textAlign: "center", padding: "28px 22px" }}>
@@ -9490,7 +9720,7 @@
   // Bump this with every release so the live page always shows what's
   // actually deployed — no more guessing whether a paste went through,
   // or which version is live when reporting a field issue.
-  const APP_VERSION = "v2.20.0";
+  const APP_VERSION = "v2.21.0";
 
   function VersionFooter() {
     return (

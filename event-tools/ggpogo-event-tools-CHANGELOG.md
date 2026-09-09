@@ -312,3 +312,18 @@ Tiles are now real `<button>`s with a pressed state and a focus ring, with the w
 **Consistency.** One `NameField` with one label and one helper line, used by all three flows and the chooser. One sign-in sentence, replacing five variants that sold it as history, badges, passport progress, progress, and profile. Passport's two "Log in to earn a badge!" buttons now say "Sign in with Google" like everywhere else, and no longer promise a badge that is only awarded when the host enabled one. Gacha's handoff card carries the winner's name and session code, which the Giveaway teaches people a host may ask for. Matching win language ("You won!"), matching button casing, and the STEP 1 OF 2 pill is gone from the one tool that had it and had no step 2.
 
 `GuestBanner` and `CommunitySignInChooser` were removed as dead code once the landing page's own identity gate replaced them.
+
+### v2.21.0 — Gacha: the capsule animation
+Replaces the gacha spin's text reel — prize names cycling in a dashed box every 90ms — with a capsule that drops in, shakes twice with a real beat between each, and bursts open in a scatter of three stars. Prototyped and iterated on as a standalone page before any of it touched the app.
+
+**Timed to 1.49s end to end**, matching the 1500ms reel it replaces almost exactly. Two shakes rather than three is what buys that, and it was a deliberate trade: a better animation shouldn't slow down a queue at the prize table. Shaving time off each shake instead would have made them read as twitches. The pause after each shake is doing the real work — shaking continuously reads as a loading spinner, separated shakes read as a decision being made.
+
+Beats: drop 280ms, settle 70, shake 280 + 90 pause, shake 280 + 90 pause, glow 180, pop 340 with the last 120 overlapping the prize landing. The drop phase is set in the same state batch as the stage so the capsule's first painted frame is already mid-drop; left to a 0ms timer it could paint once at rest first, which showed as a flicker.
+
+**The stars** are inline SVG paths whose own stroke is round-joined and the same colour as the fill, so the stroke fattens each star and rounds all ten corners in one pass — a `clip-path` polygon can only cut hard points. Three of them at 34/27/22px, unevenly spaced and staggered on launch, because an even fan of five read as a mechanical starburst rather than something thrown. They spin as they fly and each drags a trail that stretches on the way out and shortens as it loses speed.
+
+**Nothing about the result changed.** The prize is still drawn and committed to the database before any of this plays, so the animation only ever covers the wait and can never show something uncommitted. `finish()` still holds the reveal until the animation has actually played, so a fast connection doesn't skip it. Phase timers are collected in a ref and cleared both on unmount and on re-check, so a spin abandoned mid-sequence — someone navigating away, or tapping Check again — can't fire timers against a screen that has moved on.
+
+Transforms and opacity only, no images and no library, which keeps it smooth on older phones. Honours `prefers-reduced-motion` by collapsing every duration to 1ms and cutting straight to the reveal. The label above the capsule now tracks the phase ("Here we go…", "Shaking…", "Almost…") instead of sitting on a static "SPINNING…" throughout.
+
+**On the artwork:** this is a gachapon capsule, not a Poké Ball. The Poké Ball is Nintendo's design, so it isn't ours to draw — and a capsule arguably suits a tool called Gacha better anyway. The shake and pop are applied to the wrapper rather than the artwork, so dropping a different asset inside the capsule container inherits the whole animation unchanged.
