@@ -1,18 +1,18 @@
 <!--
-  v2.22.0 - Gacha: find a winner, restock one prize
-  Two host-side changes from the weekend's meetups.
-  - Find a winner: a name search on the live gacha session that covers
-    every spin, not just the 12 under Recent spins. Each match shows the
-    prize, the time and whether it was handed over, with Done right
-    there if it wasn't. Past gachas get the same search across every
-    session, with a Mark handed over button for anyone whose prize was
-    never collected. The CSV is no longer the only way to look someone
-    up.
-  - Restock one prize: every row in the prize pool has a Restock button
-    that sets a new remaining count, prefilled with the total. Going
-    above the total raises the total to match. The pool now also shows
-    on the live session screen, so topping up mid-event doesn't mean
-    leaving it. Refill all stays as a shortcut.
+  v2.23.0 - Clearer wins, other live tools, smaller Google button
+  Attendee and host polish from the weekend's meetups.
+  - Gacha win screen: the prize is now the biggest thing on it, in a
+    card coloured by prize type (orange physical, purple code) with the
+    code inside the card. The host box names the prize too, so a host
+    glancing at a phone knows what to hand over.
+  - Also running, attendees: the cross-links moved from the bottom of
+    the Giveaway and Gacha screens, below the fold, to a strip under
+    "All events" that says where the person stands in the other tool.
+  - Also live, hosts: every host tool screen shows a pill for each other
+    live tool with a live count. One tap goes straight to it.
+  - Google sign-in: a small outlined pill instead of a full-width button
+    on the welcome card and the claim screens. Passport check-in keeps
+    its full-size button, since signing in is required there.
   No Firebase rules change in this release.
   Full history: ggpogo-event-tools-CHANGELOG.md
 -->
@@ -1385,9 +1385,19 @@
   // Code Drop is deliberately absent from the cross-links: it is
   // host-presented, so advertising it to someone who cannot open it
   // themselves would recreate the same dead end in a new place.
+  //
+  // v2.23.0: the cross-links moved from the bottom of the screen, where
+  // they sat below the fold on most phones and went unnoticed, to a strip
+  // right under "All events". Each one says where this person stands in
+  // that tool ("you're entered", "you haven't spun yet"), so it reads as
+  // a nudge rather than a menu. It watches the sessions live, so a tool
+  // started mid-visit shows up without a refresh.
   function AttendeeShell({ c, children, currentTool }) {
     const [gwSession, setGwSession] = useState(null);
     const [gcSession, setGcSession] = useState(null);
+    const [gwEntered, setGwEntered] = useState(false);
+    const [gcWon, setGcWon] = useState(null);
+    const fp = fingerprint();
 
     useEffect(() => {
       const u1 = FB.watch("gw:session", (val) => setGwSession(val || null));
@@ -1395,11 +1405,47 @@
       return () => { u1(); u2(); };
     }, []);
 
+    // Same reads the landing page uses for its tile status.
+    useEffect(() => {
+      if (!gwSession) { setGwEntered(false); return undefined; }
+      if (currentTool === "giveaway") return undefined;
+      let alive = true;
+      (async () => {
+        const entrants = entrantsObjToArray(await FB.get("gw:entrants"));
+        if (alive) setGwEntered(entrants.some(e => e.fp === fp));
+      })();
+      return () => { alive = false; };
+    }, [gwSession ? gwSession.id : null]);
+
+    useEffect(() => {
+      if (!gcSession) { setGcWon(null); return undefined; }
+      if (currentTool === "gacha") return undefined;
+      let alive = true;
+      (async () => {
+        const mine = await FB.get(`gc:spins/${fp}`);
+        if (!mine) { if (alive) setGcWon(null); return; }
+        const prizes = gachaPrizesObjToArray(await FB.get("gc:prizes"));
+        const prize = prizes.find(p => p.id === mine.prizeId);
+        if (alive) setGcWon(prize ? prize.name : "a prize");
+      })();
+      return () => { alive = false; };
+    }, [gcSession ? gcSession.id : null]);
+
     const goHome = () => { window.location.href = window.location.pathname; };
 
     const others = [];
-    if (gwSession) { if (currentTool !== "giveaway") others.push({ key: "gw", label: "Giveaway", emoji: "🎁", fill: c.strawberry, border: c.strawDeep, href: `${window.location.pathname}?gw_join=${gwSession.id}` }); }
-    if (gcSession) { if (currentTool !== "gacha") others.push({ key: "gc", label: "Gacha", emoji: "🎰", fill: c.sun, border: c.sunDeep, href: `${window.location.pathname}?gc_spin=${gcSession.id}` }); }
+    if (gwSession) { if (currentTool !== "giveaway") others.push({
+      key: "gw", emoji: "🎁", title: "Giveaway",
+      status: gwEntered ? "you're entered" : "tap to enter",
+      tone: c.strawberry, toneDeep: c.strawDeep,
+      href: `${window.location.pathname}?gw_join=${gwSession.id}`,
+    }); }
+    if (gcSession) { if (currentTool !== "gacha") others.push({
+      key: "gc", emoji: "🎰", title: "Gacha",
+      status: gcWon ? `you won ${gcWon}` : (gcSession.paused ? "paused for now" : "you haven't spun yet"),
+      tone: c.sun, toneDeep: c.sunDeep,
+      href: `${window.location.pathname}?gc_spin=${gcSession.id}`,
+    }); }
 
     return (
       <div style={{ maxWidth: 420, margin: "0 auto", paddingTop: 12 }}>
@@ -1414,29 +1460,30 @@
           </button>
         </div>
 
-        {children}
-
         {others.length > 0 ? (
-          <div style={{ marginTop: 18 }}>
-            <div style={{ fontSize: 11, color: "rgba(255,255,255,0.85)", fontWeight: 700, letterSpacing: 0.6, textAlign: "center", marginBottom: 8, textShadow: "0 1px 2px rgba(0,0,0,0.25)" }}>
-              ALSO HAPPENING NOW
-            </div>
-            <div style={{ display: "flex", gap: 10, justifyContent: "center", flexWrap: "wrap" }}>
-              {others.map(o => (
-                <a key={o.key} href={o.href} style={{ textDecoration: "none" }}>
-                  <div style={{
-                    background: "#fff", border: `2px solid ${o.border}`, borderRadius: 999,
-                    padding: "8px 16px", display: "inline-flex", alignItems: "center", gap: 8,
-                    boxShadow: `0 3px 0 ${o.border}`,
-                    fontFamily: "Fredoka, sans-serif", fontWeight: 700, fontSize: 13.5, color: c.ink,
-                  }}>
-                    <span style={{ fontSize: 15, lineHeight: 1 }}>{o.emoji}</span> {o.label}
+          <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 12 }}>
+            {others.map(o => (
+              <a key={o.key} href={o.href} style={{ textDecoration: "none", display: "block" }}>
+                <div style={{
+                  background: "#fff", border: `2px solid ${o.toneDeep}`, borderRadius: 14,
+                  padding: "8px 12px", display: "flex", alignItems: "center", gap: 10,
+                  boxShadow: `0 3px 0 ${o.toneDeep}`, fontFamily: "Fredoka, sans-serif",
+                }}>
+                  <IconBox emoji={o.emoji} bg={o.tone + "33"} border={o.toneDeep} size={34} fontSize={16} />
+                  <div style={{ flex: 1, minWidth: 0, textAlign: "left" }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: o.toneDeep, display: "flex", alignItems: "center", gap: 5 }}>
+                      <span style={{ width: 7, height: 7, borderRadius: "50%", background: c.strawberry, display: "inline-block" }} /> Also running
+                    </div>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: c.ink, lineHeight: 1.25, wordBreak: "break-word" }}>{o.title} · {o.status}</div>
                   </div>
-                </a>
-              ))}
-            </div>
+                  <div style={{ color: o.toneDeep, fontSize: 22, fontWeight: 700, lineHeight: 1 }}>›</div>
+                </div>
+              </a>
+            ))}
           </div>
         ) : null}
+
+        {children}
       </div>
     );
   }
@@ -2282,6 +2329,33 @@
   // the claim/entry to the user's Garden Grove PoGo profile for future
   // history/passport features. Keep this as a top-level component.
   // ───────────────────────────────────────────────────────────
+  // v2.23.0: Google sign-in turned out to be far less used than expected,
+  // and a full-width button made it look like the main thing to do. It is
+  // now a small outlined pill with the Google mark, so it reads as the
+  // optional extra it is.
+  function GoogleMark({ size = 14 }) {
+    return (
+      <svg width={size} height={size} viewBox="0 0 24 24" style={{ flexShrink: 0 }} aria-hidden="true">
+        <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"/>
+        <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+        <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18A10.96 10.96 0 0 0 1 12c0 1.78.43 3.47 1.18 4.93l3.66-2.84z"/>
+        <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+      </svg>
+    );
+  }
+  function GoogleSignInPill({ c, onClick, busy, label }) {
+    return (
+      <button onClick={onClick} disabled={!!busy} style={{
+        background: "#fff", border: `1.5px solid ${c.paperEdge}`, borderRadius: 999,
+        padding: "6px 14px", display: "inline-flex", alignItems: "center", gap: 7,
+        fontFamily: "Fredoka, sans-serif", fontWeight: 600, fontSize: 12.5, color: c.ink,
+        cursor: busy ? "default" : "pointer", opacity: busy ? 0.6 : 1,
+      }}>
+        <GoogleMark size={14} />{busy ? "Signing in…" : (label || "Sign in with Google")}
+      </button>
+    );
+  }
+
   function OptionalProfileSignInCard({ c, authUser, authBusy, authError, onGoogleSignIn, onSignOut, flow, compact }) {
     const isSignedIn = !!authUser;
     const isChecking = authUser === undefined;
@@ -2320,16 +2394,7 @@
       // emoji in UI chrome) sized to match the Google "G" glyph beside
       // it, so both icons sit at the same visual weight.
       return (
-        <StickerBtn fill={c.sun} shadow={c.sunDeep} small onClick={onGoogleSignIn} disabled={authBusy} style={{ width: "100%", color: c.ink, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
-          <svg width="16" height="16" viewBox="0 0 24 24" style={{ flexShrink: 0 }}>
-            <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"/>
-            <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
-            <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18A10.96 10.96 0 0 0 1 12c0 1.78.43 3.47 1.18 4.93l3.66-2.84z"/>
-            <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
-          </svg>
-          <Icon name="trophy" size={16} />
-          {authBusy ? "Signing in…" : signInLabel}
-        </StickerBtn>
+        <div style={{ textAlign: "center" }}><GoogleSignInPill c={c} onClick={onGoogleSignIn} busy={authBusy} label={signInLabel} /></div>
       );
     }
 
@@ -2371,15 +2436,7 @@
         {isChecking ? (
           <div style={{ fontSize: 11, color: c.inkMute, fontWeight: 600 }}>Checking sign-in status...</div>
         ) : (
-          <StickerBtn fill={c.sun} shadow={c.sunDeep} small onClick={onGoogleSignIn} disabled={authBusy} style={{ width: "100%", color: c.ink, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
-            <svg width="16" height="16" viewBox="0 0 24 24" style={{ flexShrink: 0 }}>
-              <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"/>
-              <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
-              <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18A10.96 10.96 0 0 0 1 12c0 1.78.43 3.47 1.18 4.93l3.66-2.84z"/>
-              <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
-            </svg>
-            <Icon name="trophy" size={16} /> {authBusy ? "Signing in…" : signInLabel}
-          </StickerBtn>
+          <div style={{ textAlign: "center" }}><GoogleSignInPill c={c} onClick={onGoogleSignIn} busy={authBusy} label={signInLabel} /></div>
         )}
         {authError ? <div style={{ color: c.strawberry, fontSize: 11, fontWeight: 700, marginTop: 8, textAlign: "center" }}>{authError}</div> : null}
         <div style={{ fontSize: 10, color: c.inkMute, textAlign: "center", marginTop: 8 }}>
@@ -2634,11 +2691,9 @@
               </StickerBtn>
               <div style={{ borderTop: `1.5px dashed ${c.paperEdge}`, paddingTop: 12, textAlign: "center" }}>
                 <div style={{ fontSize: 11.5, color: c.inkMute, marginBottom: 8, lineHeight: 1.4 }}>
-                  Signing in keeps your history and badges across meetups. Your Google name stays private.
+                  Want your history and badges saved between meetups? Your Google name stays private.
                 </div>
-                <StickerBtn fill="#4285F4" shadow="#2a5db0" small onClick={onGoogleSignIn} disabled={authBusy} style={{ width: "100%", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
-                  {authBusy ? "Signing in…" : "Sign in with Google"}
-                </StickerBtn>
+                <GoogleSignInPill c={c} onClick={onGoogleSignIn} busy={authBusy} />
                 {authError ? <div style={{ color: c.strawberry, fontSize: 11.5, fontWeight: 600, marginTop: 8 }}>{authError}</div> : null}
               </div>
             </>
@@ -7438,6 +7493,63 @@
     );
   }
 
+  // v2.23.0: running two tools at once meant losing track of the other
+  // one the moment you opened either. Every host tool screen now shows a
+  // pill for each OTHER live tool, with a live count, and tapping it goes
+  // straight there. Each tool already jumps to its live screen when a
+  // session is running, so one tap lands in the action.
+  function HostLiveStrip({ c, currentView, setView }) {
+    const [cd, setCd] = useState(null);
+    const [codes, setCodes] = useState([]);
+    const [gw, setGw] = useState(null);
+    const [gwCount, setGwCount] = useState(0);
+    const [gc, setGc] = useState(null);
+    const [gcCount, setGcCount] = useState(0);
+    const [pp, setPp] = useState(null);
+    const [ppCount, setPpCount] = useState(0);
+
+    useEffect(() => {
+      const unwatchers = [
+        FB.watch("cd:session", (v) => setCd(v || null)),
+        FB.watch("cd:codes", (v) => setCodes(codesObjToArray(v))),
+        FB.watch("gw:session", (v) => setGw(v || null)),
+        FB.watch("gw:entrants", (v) => setGwCount(v ? Object.keys(v).length : 0)),
+        FB.watch("gc:session", (v) => setGc(v || null)),
+        FB.watch("gc:log", (v) => setGcCount(v ? Object.keys(v).length : 0)),
+        FB.watch("pp:session", (v) => setPp(v || null)),
+        FB.watch("pp:checkInLog", (v) => setPpCount(v ? Object.keys(v).length : 0)),
+      ];
+      return () => unwatchers.forEach(u => u());
+    }, []);
+
+    const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+    const items = [];
+    if (cd) { if (currentView !== "codedrop") {
+      const left = codes.filter(x => x.claimed ? false : !isExpired(x)).length;
+      items.push({ view: "codedrop", label: "Code Drop", detail: plural(left, "code left", "codes left"), paused: !!cd.paused, dot: c.blue, border: c.blueDeep });
+    } }
+    if (gw) { if (currentView !== "giveaway") items.push({ view: "giveaway", label: "Giveaway", detail: plural(gwCount, "entrant", "entrants"), paused: !!gw.paused, dot: c.strawberry, border: c.strawDeep }); }
+    if (gc) { if (currentView !== "gacha") items.push({ view: "gacha", label: "Gacha", detail: plural(gcCount, "spin", "spins"), paused: !!gc.paused, dot: c.sun, border: c.sunDeep }); }
+    if (pp) { if (currentView !== "passport") items.push({ view: "passport", label: "Passport", detail: plural(ppCount, "check-in", "check-ins"), paused: !!pp.paused, dot: c.purple, border: c.purpleDeep }); }
+    if (items.length === 0) return null;
+
+    return (
+      <div style={{ maxWidth: 460, margin: "0 auto 14px", display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+        <span style={{ fontSize: 11, color: "#fff", fontWeight: 700, letterSpacing: 0.5, textShadow: "0 1px 2px rgba(0,0,0,0.3)", marginRight: 2 }}>ALSO LIVE</span>
+        {items.map(it => (
+          <button key={it.view} onClick={() => setView(it.view)} style={{
+            background: "#fff", border: `2px solid ${it.border}`, borderRadius: 999, padding: "5px 12px",
+            display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer",
+            fontFamily: "Fredoka, sans-serif", fontWeight: 700, fontSize: 12.5, color: c.ink,
+          }}>
+            <span style={{ width: 8, height: 8, borderRadius: "50%", background: it.paused ? c.inkMute : it.dot, display: "inline-block" }} />
+            {it.label}{it.paused ? " (paused)" : ""} · {it.detail} ›
+          </button>
+        ))}
+      </div>
+    );
+  }
+
   function GachaApp({ setView, c }) {
     const [screen, setScreen] = useState("dashboard"); // dashboard | session | history
     const [prizes, setPrizes] = useState([]);
@@ -8407,26 +8519,38 @@
       );
     }
 
+    // v2.23.0: the prize card's colour and label follow the prize type,
+    // matching the host's prize pool (orange physical, purple code).
+    const isCodePrize = won ? won.prizeType === "code" : false;
+    const prizeTone = isCodePrize ? c.purple : c.orange;
+    const prizeToneDeep = isCodePrize ? c.purpleDeep : c.orangeDeep;
+
     if (stage === "reveal") return wrap(
       <Paper c={c} accent={c.grassMid} style={{ textAlign: "center", padding: "28px 22px" }}>
-        <IconBox emoji="🎉" bg={c.grassMid + "33"} border={c.grassDeep} size={72} fontSize={32} />
-        <div style={{ height: 14 }} />
-        {/* v2.20.0: same win language as the Giveaway, which said
-            "You won!" while this said "YOU GOT". */}
-        <Banner c={c} fill={c.grassDeep} style={{ marginBottom: 14 }}>You won!</Banner>
-        <div style={{ fontSize: 11, color: c.inkMute, letterSpacing: 2, fontWeight: 700, marginBottom: 8 }}>YOUR PRIZE</div>
-        <div style={{ fontFamily: "Fredoka, sans-serif", fontSize: 24, fontWeight: 700, color: c.ink, lineHeight: 1.2, marginBottom: won.description ? 6 : 14 }}>
-          {won.prizeName}
+        {/* v2.23.0: the prize is now the loudest thing on this screen.
+            People were seeing a big "You won!" with the actual prize in
+            smaller text under a grey label, and walking up to the table
+            unsure what they had won. */}
+        <div style={{ display: "inline-block", background: c.grassDeep, color: "#fff", fontFamily: "Fredoka, sans-serif", fontWeight: 700, fontSize: 14, letterSpacing: 0.5, borderRadius: 10, padding: "5px 16px", marginBottom: 14 }}>🎉 You won!</div>
+        <div style={{ background: "#fff", border: `3px solid ${prizeTone}`, borderRadius: 18, overflow: "hidden", marginBottom: 14, boxShadow: `0 4px 0 ${prizeToneDeep}` }}>
+          <div style={{ background: prizeTone, color: "#fff", fontFamily: "Fredoka, sans-serif", fontWeight: 700, fontSize: 12, letterSpacing: 0.5, padding: "6px 10px", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+            <Icon name={isCodePrize ? "code" : "gift"} size={13} /> {isCodePrize ? "Code prize" : "Physical prize"}
+          </div>
+          <div style={{ padding: "18px 16px 16px" }}>
+            <div style={{ fontFamily: "Fredoka, sans-serif", fontSize: 30, fontWeight: 700, color: c.ink, lineHeight: 1.1, wordBreak: "break-word" }}>{won.prizeName}</div>
+            {won.description ? <div style={{ fontSize: 13, color: c.inkSoft, lineHeight: 1.5, marginTop: 6 }}>{won.description}</div> : null}
+            {won.code ? (
+              <div style={{ background: c.paperDim, borderRadius: 14, padding: "14px 12px", marginTop: 14 }}>
+                <div style={{ fontSize: 11, letterSpacing: 2, color: c.inkMute, fontWeight: 600, marginBottom: 8 }}>YOUR CODE</div>
+                <div style={{ fontFamily: "monospace", fontSize: 22, fontWeight: 700, color: c.ink, letterSpacing: 2, wordBreak: "break-all", lineHeight: 1.3, marginBottom: won.codeReward ? 8 : 0 }}>{won.code}</div>
+                {won.codeReward ? <div style={{ fontSize: 13, fontWeight: 700, color: c.grassDeep }}>{won.codeReward}</div> : null}
+              </div>
+            ) : null}
+          </div>
         </div>
-        {won.description ? <div style={{ fontSize: 13, color: c.inkSoft, lineHeight: 1.5, marginBottom: 14 }}>{won.description}</div> : null}
 
         {won.code ? (
           <>
-            <div style={{ background: c.paperDim, borderRadius: 18, padding: "18px 16px", marginBottom: 14 }}>
-              <div style={{ fontSize: 11, letterSpacing: 2, color: c.inkMute, fontWeight: 600, marginBottom: 8 }}>YOUR CODE</div>
-              <div style={{ fontFamily: "monospace", fontSize: 22, fontWeight: 700, color: c.ink, letterSpacing: 2, wordBreak: "break-all", lineHeight: 1.3, marginBottom: won.codeReward ? 8 : 0 }}>{won.code}</div>
-              {won.codeReward ? <div style={{ fontSize: 13, fontWeight: 700, color: c.grassDeep }}>{won.codeReward}</div> : null}
-            </div>
             {/* v2.19.0: Code Drop and the Giveaway both carry this
                 warning and Gacha shipped without it, even though all
                 three hand out codes from the same stash and redeeming
@@ -8445,7 +8569,7 @@
           <div style={{ background: c.orange + "1A", border: `2px solid ${c.orange}`, borderRadius: 14, padding: "14px 16px", marginBottom: 14 }}>
             <div style={{ fontWeight: 700, fontSize: 14, color: c.ink, marginBottom: 4 }}>Show this screen to a host</div>
             <div style={{ fontSize: 12, color: c.inkSoft, lineHeight: 1.5, marginBottom: 10 }}>
-              {won.codePending ? "They'll sort out a code for you in person." : "They'll hand your prize over."}
+              {won.codePending ? "They'll sort out a code for you in person." : `They'll hand your ${won.prizeName} over.`}
             </div>
             {/* v2.20.0: the Giveaway teaches people that a host may ask
                 for their session code before handing anything over, and
@@ -9979,7 +10103,7 @@
   // Bump this with every release so the live page always shows what's
   // actually deployed — no more guessing whether a paste went through,
   // or which version is live when reporting a field issue.
-  const APP_VERSION = "v2.22.0";
+  const APP_VERSION = "v2.23.0";
 
   function VersionFooter() {
     return (
@@ -10224,6 +10348,7 @@
         /> : null}
         {showActivity ? <ActivityHistory setView={setView} c={c} authUser={authUser} /> : null}
         {showMyStuff ? <MyStuff setView={setView} c={c} authUser={authUser} /> : null}
+        {(showCodeDrop || showGiveaway || showGacha || showPassport) ? <HostLiveStrip c={c} currentView={view} setView={setView} /> : null}
         {showCodeDrop ? <CodeDropApp setView={setView} c={c} /> : null}
         {showGiveaway ? <GiveawayApp setView={setView} c={c} /> : null}
         {showGacha ? <GachaApp setView={setView} c={c} /> : null}
