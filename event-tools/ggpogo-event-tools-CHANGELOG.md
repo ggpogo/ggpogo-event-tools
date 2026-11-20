@@ -327,3 +327,14 @@ Beats: drop 280ms, settle 70, shake 280 + 90 pause, shake 280 + 90 pause, glow 1
 Transforms and opacity only, no images and no library, which keeps it smooth on older phones. Honours `prefers-reduced-motion` by collapsing every duration to 1ms and cutting straight to the reveal. The label above the capsule now tracks the phase ("Here we go…", "Shaking…", "Almost…") instead of sitting on a static "SPINNING…" throughout.
 
 **On the artwork:** this is a gachapon capsule, not a Poké Ball. The Poké Ball is Nintendo's design, so it isn't ours to draw — and a capsule arguably suits a tool called Gacha better anyway. The shake and pop are applied to the wrapper rather than the artwork, so dropping a different asset inside the capsule container inherits the whole animation unchanged.
+
+### v2.21.1 — fix: the name field closing after one letter
+Reported at the weekend meetups: on the Code Drop, Giveaway and Gacha claim screens, typing the first letter of a name made the field disappear and the phone keyboard close, and a lot of people ended up entered as "X", "g" or "O".
+
+**Cause.** Since v2.20.0 each claim screen chose between the name field and the "Playing as" line with `knownName = !!name.trim()`, where `name` was the same state the field typed into. One keystroke made the name "known", React swapped `NameField` out for `PlayingAs`, the input unmounted and the keyboard went with it. The landing page never had the bug, because it types into a separate `draftName`; people who scanned a QR straight into a tool did.
+
+**Fix.** Each of the three screens now keeps a separate `settled` name: whatever was saved on the device when the screen opened, or the signed-in profile's name if that loads later. Only `settled` decides whether "Playing as" shows, so typing can no longer change the layout. The late profile load checks the live field through a ref and leaves it alone if someone has already typed a usable name.
+
+**Cleanup for people already affected.** A new `settledName()` treats any saved name under two characters as not set. Claim screens show the field again with the letter pre-filled; the landing page asks "What should we call you?" with it pre-filled; and a signed-in profile whose trainer name is a single character gets the pick-a-name screen on next load. Entries already recorded under one-letter names in past giveaway and gacha history are left as they are.
+
+No Firebase rules change.

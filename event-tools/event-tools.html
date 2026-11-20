@@ -1,26 +1,18 @@
 <!--
-  v2.21.0 — Gacha: the capsule animation
-  Replaces the gacha spin's text reel, which cycled prize names in a
-  dashed box, with a capsule that drops in, shakes twice with a real
-  beat between each, and bursts open in a scatter of three stars.
-  - Timed to 1.49s end to end, matching the reel it replaces almost
-    exactly. Two shakes rather than three is what buys that: a nicer
-    animation should not slow down a queue at the prize table. The pause
-    after each shake is doing the work — shaking continuously reads as
-    loading, separated shakes read as a decision being made.
-  - The stars are inline SVG paths whose own stroke is round-joined and
-    the same colour as the fill, which fattens each star and rounds all
-    ten corners at once. They are unevenly spaced and staggered on
-    purpose: an even fan reads as a mechanical starburst.
-  - Nothing about the result changed. As before, the prize is drawn and
-    written to the database before any of this plays, so the animation
-    only ever covers the wait and can never show something the database
-    has not committed.
-  - Transforms and opacity only, no images and no library, so it stays
-    smooth on the older phones at a meetup. Respects reduced-motion by
-    cutting straight to the reveal.
-  - The label above the capsule now tracks the animation rather than
-    sitting on a static "SPINNING..." throughout.
+  v2.21.1 - Fix: the name field closing after one letter
+  On the Code Drop, Giveaway and Gacha claim screens, typing the first
+  letter of a name made the field vanish, closed the phone keyboard and
+  left the person with a one-letter name ("X", "g", "O").
+  - Cause: the screen decided whether to show the name field or the
+    "Playing as" line by checking whether the field had anything in it.
+    One keystroke was enough to count as a known name.
+  - Fix: "Playing as" now only appears for a name the screen opened
+    with, or one loaded from the signed-in profile. Typing never flips
+    the screen out from under the person.
+  - Cleanup: a saved name of a single character is treated as not set.
+    The landing page and claim screens show the field again with that
+    letter pre-filled, and a signed-in profile holding one gets the
+    pick-a-name screen, so nobody stays stuck as "X".
   No Firebase rules change in this release.
   Full history: ggpogo-event-tools-CHANGELOG.md
 -->
@@ -628,6 +620,16 @@
     const saved = getSavedTrainerName();
     if (saved) return saved;
     return "";
+  }
+
+  // v2.21.1: a saved name only counts as settled once it is at least two
+  // characters. Up to v2.21.0 the name field closed itself after the
+  // first keystroke, so plenty of phones are now holding a one-letter
+  // name nobody meant to pick. Treating those as unsettled puts the field
+  // back in front of the person, pre-filled, so they can fix it.
+  function settledName(name) {
+    const trimmed = name ? String(name).trim() : "";
+    return trimmed.length >= 2 ? trimmed : "";
   }
 
   // Check if a Firebase Auth user is a host by looking up /roles/hosts/{uid}
@@ -2488,7 +2490,12 @@
     // Name entry, for someone who has not been here before or tapped
     // "change".
     const [editingName, setEditingName] = useState(false);
-    const [draftName, setDraftName] = useState("");
+    // v2.21.1: a one-letter name left over from the old field bug is
+    // offered back in the box so it can be corrected in place.
+    const [draftName, setDraftName] = useState(() => {
+      const current = resolveDisplayName(profileTrainerName);
+      return settledName(current) ? "" : current;
+    });
     const [savingName, setSavingName] = useState(false);
     const fp = fingerprint();
 
@@ -2505,7 +2512,7 @@
     const isSignedIn = communityMode === "signed_in" ? !!authUser : false;
     const isGuest = communityMode === "guest";
     const displayName = resolveDisplayName(profileTrainerName);
-    const hasIdentity = !!displayName;
+    const hasIdentity = !!settledName(displayName);
 
     // Has this device already entered the live giveaway? gw:entrants is
     // publicly readable, and matching on fingerprint is how the claim
@@ -4052,8 +4059,18 @@
     const [name, setName] = useState(() => getSavedTrainerName());
     // v2.20.0: a name is known if the door (or a previous meetup on this
     // device) already gave us one. "change" flips this back to the field.
+    //
+    // v2.21.1: "known" now comes from the name this screen opened with,
+    // or the one the signed-in profile hands back, and never from what is
+    // being typed. It used to read the live field, so the first keystroke
+    // counted as a known name: the field swapped out for "Playing as",
+    // the phone keyboard closed, and the person was left with a
+    // one-letter name.
+    const [settled, setSettled] = useState(() => settledName(getSavedTrainerName()));
+    const nameRef = useRef(name);
+    nameRef.current = name;
     const [editingName, setEditingName] = useState(false);
-    const knownName = editingName ? false : !!name.trim();
+    const knownName = editingName ? false : !!settled;
     const [myCode, setMyCode] = useState(null);
     const [myReward, setMyReward] = useState(null);
     const fp = fingerprint();
@@ -4092,12 +4109,16 @@
 
     useEffect(() => {
       let alive = true;
-      const hasName = !!name.trim();
       if (!authUser) return undefined;
-      if (hasName) return undefined;
+      if (settled) return undefined;
       (async () => {
-        const profileName = await loadSavedProfileTrainerName(authUser);
-        if (alive) { if (profileName) setName(profileName); }
+        const profileName = settledName(await loadSavedProfileTrainerName(authUser));
+        if (!alive) return;
+        if (!profileName) return;
+        // Leave alone anything typed while the profile was loading.
+        if (settledName(nameRef.current)) return;
+        setName(profileName);
+        setSettled(profileName);
       })();
       return () => { alive = false; };
     }, [authUser ? authUser.uid : null]);
@@ -4400,8 +4421,18 @@
     const [name, setName] = useState(() => getSavedTrainerName());
     // v2.20.0: a name is known if the door (or a previous meetup on this
     // device) already gave us one. "change" flips this back to the field.
+    //
+    // v2.21.1: "known" now comes from the name this screen opened with,
+    // or the one the signed-in profile hands back, and never from what is
+    // being typed. It used to read the live field, so the first keystroke
+    // counted as a known name: the field swapped out for "Playing as",
+    // the phone keyboard closed, and the person was left with a
+    // one-letter name.
+    const [settled, setSettled] = useState(() => settledName(getSavedTrainerName()));
+    const nameRef = useRef(name);
+    nameRef.current = name;
     const [editingName, setEditingName] = useState(false);
-    const knownName = editingName ? false : !!name.trim();
+    const knownName = editingName ? false : !!settled;
     const [wonPrize, setWonPrize] = useState(null); // { name, type, code?, description?, confirmed? }
     const [entrantCount, setEntrantCount] = useState(null); // live count for attendee waiting screen
     // v2.13.8: drawing time/location for the "keep an eye on this" alert
@@ -4489,12 +4520,16 @@
 
     useEffect(() => {
       let alive = true;
-      const hasName = !!name.trim();
       if (!authUser) return undefined;
-      if (hasName) return undefined;
+      if (settled) return undefined;
       (async () => {
-        const profileName = await loadSavedProfileTrainerName(authUser);
-        if (alive) { if (profileName) setName(profileName); }
+        const profileName = settledName(await loadSavedProfileTrainerName(authUser));
+        if (!alive) return;
+        if (!profileName) return;
+        // Leave alone anything typed while the profile was loading.
+        if (settledName(nameRef.current)) return;
+        setName(profileName);
+        setSettled(profileName);
       })();
       return () => { alive = false; };
     }, [authUser ? authUser.uid : null]);
@@ -7814,8 +7849,18 @@
     const [name, setName] = useState(() => getSavedTrainerName());
     // v2.20.0: a name is known if the door (or a previous meetup on this
     // device) already gave us one. "change" flips this back to the field.
+    //
+    // v2.21.1: "known" now comes from the name this screen opened with,
+    // or the one the signed-in profile hands back, and never from what is
+    // being typed. It used to read the live field, so the first keystroke
+    // counted as a known name: the field swapped out for "Playing as",
+    // the phone keyboard closed, and the person was left with a
+    // one-letter name.
+    const [settled, setSettled] = useState(() => settledName(getSavedTrainerName()));
+    const nameRef = useRef(name);
+    nameRef.current = name;
     const [editingName, setEditingName] = useState(false);
-    const knownName = editingName ? false : !!name.trim();
+    const knownName = editingName ? false : !!settled;
     const [prizes, setPrizes] = useState([]);
     const [won, setWon] = useState(null);
     // v2.21.0: replaces the old text reel. Phases are timed below and
@@ -7896,12 +7941,16 @@
 
     useEffect(() => {
       let alive = true;
-      const hasName = !!name.trim();
       if (!authUser) return undefined;
-      if (hasName) return undefined;
+      if (settled) return undefined;
       (async () => {
-        const profileName = await loadSavedProfileTrainerName(authUser);
-        if (alive) { if (profileName) setName(profileName); }
+        const profileName = settledName(await loadSavedProfileTrainerName(authUser));
+        if (!alive) return;
+        if (!profileName) return;
+        // Leave alone anything typed while the profile was loading.
+        if (settledName(nameRef.current)) return;
+        setName(profileName);
+        setSettled(profileName);
       })();
       return () => { alive = false; };
     }, [authUser ? authUser.uid : null]);
@@ -9720,7 +9769,7 @@
   // Bump this with every release so the live page always shows what's
   // actually deployed — no more guessing whether a paste went through,
   // or which version is live when reporting a field issue.
-  const APP_VERSION = "v2.21.0";
+  const APP_VERSION = "v2.21.1";
 
   function VersionFooter() {
     return (
@@ -9798,7 +9847,7 @@
           // Check if this user still needs to pick a trainer name
           try {
             const existingName = await loadSavedProfileTrainerName(u);
-            if (existingName) {
+            if (settledName(existingName)) {
               setProfileTrainerName(existingName);
               setNeedsTrainerName(false);
             } else {
