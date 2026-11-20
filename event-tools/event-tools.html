@@ -1,18 +1,18 @@
 <!--
-  v2.21.1 - Fix: the name field closing after one letter
-  On the Code Drop, Giveaway and Gacha claim screens, typing the first
-  letter of a name made the field vanish, closed the phone keyboard and
-  left the person with a one-letter name ("X", "g", "O").
-  - Cause: the screen decided whether to show the name field or the
-    "Playing as" line by checking whether the field had anything in it.
-    One keystroke was enough to count as a known name.
-  - Fix: "Playing as" now only appears for a name the screen opened
-    with, or one loaded from the signed-in profile. Typing never flips
-    the screen out from under the person.
-  - Cleanup: a saved name of a single character is treated as not set.
-    The landing page and claim screens show the field again with that
-    letter pre-filled, and a signed-in profile holding one gets the
-    pick-a-name screen, so nobody stays stuck as "X".
+  v2.22.0 - Gacha: find a winner, restock one prize
+  Two host-side changes from the weekend's meetups.
+  - Find a winner: a name search on the live gacha session that covers
+    every spin, not just the 12 under Recent spins. Each match shows the
+    prize, the time and whether it was handed over, with Done right
+    there if it wasn't. Past gachas get the same search across every
+    session, with a Mark handed over button for anyone whose prize was
+    never collected. The CSV is no longer the only way to look someone
+    up.
+  - Restock one prize: every row in the prize pool has a Restock button
+    that sets a new remaining count, prefilled with the total. Going
+    above the total raises the total to match. The pool now also shows
+    on the live session screen, so topping up mid-event doesn't mean
+    leaving it. Refill all stays as a shortcut.
   No Firebase rules change in this release.
   Full history: ggpogo-event-tools-CHANGELOG.md
 -->
@@ -1299,6 +1299,8 @@
         return <svg {...common}><path d="M17.65 6.35A7.958 7.958 0 0 0 12 4a8 8 0 0 0-8 8 8 8 0 0 0 8 8 8 8 0 0 0 7.21-4.56l-1.78-.85A6 6 0 0 1 12 18a6 6 0 1 1 4.22-10.22L13 11h7V4l-2.35 2.35z"/></svg>;
       case "chart":
         return <svg {...common}><path d="M3 3h2v18H3V3zm4 10h2v8H7v-8zm4-6h2v14h-2V7zm4 3h2v11h-2V10zm4-7h2v18h-2V3z"/></svg>;
+      case "search":
+        return <svg {...common}><path d="M10 3a7 7 0 0 1 5.6 11.2l5.1 5.1-1.4 1.4-5.1-5.1A7 7 0 1 1 10 3zm0 2a5 5 0 1 0 0 10 5 5 0 0 0 0-10z"/></svg>;
       case "trophy":
         return <svg {...common}><path d="M5 4h14v2h2v3a4 4 0 0 1-4 4h-.2A6 6 0 0 1 13 17.4V19h3v2H8v-2h3v-1.6A6 6 0 0 1 7.2 13H7a4 4 0 0 1-4-4V6h2V4zm-2 4a2 2 0 0 0 2 2v-4H3v2zm16-2v4a2 2 0 0 0 2-2V6h-2z"/></svg>;
       default:
@@ -7306,6 +7308,136 @@
   // (gc:session), so it runs alongside Code Drop and Giveaway rather
   // than instead of them.
   // ───────────────────────────────────────────────────────────
+  // v2.22.0: a name search box for the host screens.
+  function SearchField({ c, value, onChange, placeholder }) {
+    return (
+      <div style={{ position: "relative", marginBottom: 10 }}>
+        <Icon name="search" size={15} style={{ position: "absolute", left: 11, top: "50%", transform: "translateY(-50%)", color: c.inkMute }} />
+        <input
+          value={value}
+          onChange={e => onChange(e.target.value)}
+          placeholder={placeholder}
+          maxLength={40}
+          style={{ width: "100%", boxSizing: "border-box", paddingLeft: 34 }}
+        />
+      </div>
+    );
+  }
+
+  // v2.22.0: one prize-pool row, shared by the setup screen and the live
+  // session so restocking works the same in both. Restock sets the new
+  // remaining count outright, prefilled with the prize's total. Going
+  // above the total raises the total to match, since remaining can never
+  // be more than quantity; going below leaves the total alone.
+  function GachaPrizeRow({ c, prize, chance, onRemove }) {
+    const p = prize;
+    const [restocking, setRestocking] = useState(false);
+    const [draft, setDraft] = useState("");
+    const [saving, setSaving] = useState(false);
+    const tc = p.type === "code" ? c.purple : c.orange;
+    // Undefined for anything not currently drawable: sold out, or a zero
+    // weight that only a hand-edited database value could produce, since
+    // the form floors weight at 1.
+    const soldOut = typeof chance !== "number";
+    const parsed = draft.trim() === "" ? NaN : Math.floor(Number(draft));
+    const valid = Number.isFinite(parsed) ? parsed >= 0 : false;
+    const raisesTotal = valid ? parsed > p.quantity : false;
+
+    const openRestock = () => { setDraft(String(p.quantity)); setRestocking(true); };
+    const saveRestock = async () => {
+      if (!valid) return;
+      if (saving) return;
+      setSaving(true);
+      const updates = { [`gc:prizes/${p.id}/remaining`]: parsed };
+      if (raisesTotal) updates[`gc:prizes/${p.id}/quantity`] = parsed;
+      await FB.update(updates);
+      setSaving(false);
+      setRestocking(false);
+    };
+
+    const hint = !valid
+      ? "Enter a number, 0 or more."
+      : raisesTotal
+        ? `Above ${p.quantity}, so the total becomes ${parsed}.`
+        : `Total stays at ${p.quantity}.`;
+
+    return (
+      <div style={{ padding: "10px 12px", background: restocking ? "#fff" : (soldOut ? (c.paperEdge + "55") : c.paperDim), borderRadius: 10, border: restocking ? `2px solid ${c.blue}` : "2px solid transparent" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, opacity: soldOut ? (restocking ? 1 : 0.65) : 1 }}>
+          <div style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 26, height: 26, borderRadius: 7, background: tc + "22", color: tc, flexShrink: 0 }}>
+            <Icon name={p.type === "code" ? "code" : "gift"} size={13} />
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontWeight: 700, fontSize: 14, color: c.ink }}>{p.name}</div>
+            <div style={{ fontSize: 11, color: c.inkMute, marginTop: 2, display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+              <span style={{ background: tc + "22", color: tc, padding: "0px 6px", borderRadius: 5, fontWeight: 700, fontSize: 9, letterSpacing: 0.5, textTransform: "uppercase" }}>{p.type === "code" ? "Code" : "Physical"}</span>
+              <span>{p.remaining} of {p.quantity} left</span>
+              <span>weight {p.weight}</span>
+            </div>
+          </div>
+          <div style={{ textAlign: "right", flexShrink: 0 }}>
+            <div style={{ fontSize: 15, fontWeight: 700, color: soldOut ? c.inkMute : c.ink, lineHeight: 1 }}>
+              {soldOut ? "—" : `${chance >= 10 ? Math.round(chance) : chance.toFixed(1)}%`}
+            </div>
+            <div style={{ fontSize: 9, color: c.inkMute, fontWeight: 700, letterSpacing: 0.5, marginTop: 2 }}>CHANCE</div>
+          </div>
+          {!restocking ? (
+            <button onClick={openRestock} style={{
+              background: "#fff", border: `1.5px solid ${c.blueDeep}`, borderRadius: 7, padding: "3px 8px",
+              fontFamily: "Fredoka, sans-serif", fontWeight: 700, fontSize: 11, color: c.blueDeep, cursor: "pointer", flexShrink: 0,
+            }}>Restock</button>
+          ) : null}
+          {onRemove ? (
+            <button onClick={onRemove} style={{ background: "none", border: "none", color: c.inkMute, fontSize: 18, cursor: "pointer", padding: "0 2px", lineHeight: 1 }}>×</button>
+          ) : null}
+        </div>
+        {restocking ? (
+          <div style={{ marginTop: 10, paddingTop: 10, borderTop: `1.5px dashed ${c.paperEdge}` }}>
+            <div style={{ fontSize: 10, color: c.inkMute, fontWeight: 700, letterSpacing: 0.5, marginBottom: 4 }}>NEW REMAINING</div>
+            <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+              <input
+                type="number" min={0} inputMode="numeric" value={draft} autoFocus
+                onChange={e => setDraft(e.target.value)}
+                onKeyDown={e => { if (e.key === "Enter") saveRestock(); }}
+                style={{ flex: 1, minWidth: 0 }}
+              />
+              <StickerBtn fill={c.grassMid} shadow={c.grassDeep} small disabled={!valid || saving} onClick={saveRestock}>{saving ? "Saving…" : "Save"}</StickerBtn>
+              <StickerBtn fill={c.paperDim} shadow={c.paperEdge} small onClick={() => setRestocking(false)} style={{ color: c.ink }}>Cancel</StickerBtn>
+            </div>
+            <div style={{ fontSize: 11, color: valid ? (raisesTotal ? c.orangeDeep : c.inkMute) : c.strawDeep, fontWeight: raisesTotal ? 700 : 400, marginTop: 6, lineHeight: 1.4 }}>{hint}</div>
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+
+  // v2.22.0: a single spin as a search result, on the live session and in
+  // past gachas. Code prizes are marked collected the moment they're
+  // won, so "collected" means two different things depending on type.
+  function GachaWinnerRow({ c, entry, sub, actionLabel, onMark }) {
+    const x = entry;
+    const isCode = x.prizeType === "code";
+    const status = x.collected
+      ? (isCode ? "Code shown on their phone" : "Handed over")
+      : (x.codePending ? "Needs a code from you" : "Not handed over");
+    return (
+      <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", borderRadius: 10, background: x.collected ? c.paperDim : (c.orange + "14"), border: x.collected ? "2px solid transparent" : `2px solid ${c.orange}44` }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontWeight: 700, fontSize: 14, color: c.ink, wordBreak: "break-word" }}>{x.name}</div>
+          <div style={{ fontSize: 12, color: c.inkSoft, marginTop: 2 }}>{x.prizeName}{sub ? ` · ${sub}` : ""}</div>
+          <div style={{ fontSize: 11, fontWeight: 700, marginTop: 3, color: x.collected ? c.grassDeep : c.orangeDeep, display: "flex", alignItems: "center", gap: 4 }}>
+            {x.collected ? <Icon name="check" size={11} /> : null}{status}
+          </div>
+        </div>
+        {!x.collected ? (onMark ? (
+          <StickerBtn fill={c.grassMid} shadow={c.grassDeep} small onClick={onMark} style={{ display: "inline-flex", alignItems: "center", gap: 5, flexShrink: 0 }}>
+            <Icon name="check" size={12} /> {actionLabel}
+          </StickerBtn>
+        ) : null) : null}
+      </div>
+    );
+  }
+
   function GachaApp({ setView, c }) {
     const [screen, setScreen] = useState("dashboard"); // dashboard | session | history
     const [prizes, setPrizes] = useState([]);
@@ -7448,36 +7580,9 @@
             </div>
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              {prizes.map(p => {
-                const tc = p.type === "code" ? c.purple : c.orange;
-                // Undefined for anything not currently drawable — sold
-                // out, or a zero weight that only a hand-edited database
-                // value could produce, since the form floors weight at 1.
-                const chance = odds.pct[p.id];
-                const soldOut = typeof chance !== "number";
-                return (
-                  <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", background: soldOut ? (c.paperEdge + "55") : c.paperDim, borderRadius: 10, opacity: soldOut ? 0.65 : 1 }}>
-                    <div style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 26, height: 26, borderRadius: 7, background: tc + "22", color: tc, flexShrink: 0 }}>
-                      <Icon name={p.type === "code" ? "code" : "gift"} size={13} />
-                    </div>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontWeight: 700, fontSize: 14, color: c.ink }}>{p.name}</div>
-                      <div style={{ fontSize: 11, color: c.inkMute, marginTop: 2, display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
-                        <span style={{ background: tc + "22", color: tc, padding: "0px 6px", borderRadius: 5, fontWeight: 700, fontSize: 9, letterSpacing: 0.5, textTransform: "uppercase" }}>{p.type === "code" ? "Code" : "Physical"}</span>
-                        <span>{p.remaining} of {p.quantity} left</span>
-                        <span>weight {p.weight}</span>
-                      </div>
-                    </div>
-                    <div style={{ textAlign: "right", flexShrink: 0 }}>
-                      <div style={{ fontSize: 15, fontWeight: 700, color: soldOut ? c.inkMute : c.ink, lineHeight: 1 }}>
-                        {soldOut ? "—" : `${chance >= 10 ? Math.round(chance) : chance.toFixed(1)}%`}
-                      </div>
-                      <div style={{ fontSize: 9, color: c.inkMute, fontWeight: 700, letterSpacing: 0.5, marginTop: 2 }}>CHANCE</div>
-                    </div>
-                    <button onClick={() => removePrize(p.id, p.name)} style={{ background: "none", border: "none", color: c.inkMute, fontSize: 18, cursor: "pointer", padding: "0 2px", lineHeight: 1 }}>×</button>
-                  </div>
-                );
-              })}
+              {prizes.map(p => (
+                <GachaPrizeRow key={p.id} c={c} prize={p} chance={odds.pct[p.id]} onRemove={() => removePrize(p.id, p.name)} />
+              ))}
             </div>
           )}
 
@@ -7586,6 +7691,7 @@
     const [fullscreen, setFullscreen] = useState(false);
     const [ending, setEnding] = useState(false);
     const [endError, setEndError] = useState("");
+    const [winnerQuery, setWinnerQuery] = useState("");
     const { confirmState, requestConfirm, handleCancel, handleConfirm } = useConfirm();
 
     useEffect(() => {
@@ -7621,6 +7727,13 @@
     // list until the host taps to confirm. Code prizes land on the
     // winner's phone directly and are recorded as collected on the spot.
     const pending = sorted.filter(x => !x.collected);
+    // v2.22.0: "Recent spins" stops at 12, so a winner who comes back an
+    // hour later used to be findable only in the CSV after the session
+    // ended. This searches every spin in the live session.
+    const winnerQ = winnerQuery.trim().toLowerCase();
+    const winnerMatches = winnerQ ? sorted.filter(x => String(x.name || "").toLowerCase().includes(winnerQ)) : [];
+    const liveOdds = gachaLiveOdds(prizes);
+    const spinTime = (t) => new Date(t).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 
     const togglePause = async () => {
       await FB.set("gc:session/paused", !session.paused);
@@ -7702,9 +7815,29 @@
         {totalStock === 0 ? (
           <Paper c={c} accent={c.strawberry} style={{ marginBottom: 16, textAlign: "center", padding: "16px 18px" }}>
             <div style={{ fontWeight: 700, fontSize: 14, color: c.strawDeep }}>Everything's been won</div>
-            <div style={{ fontSize: 12, color: c.inkSoft, marginTop: 4, lineHeight: 1.5 }}>New spins will be told the machine is empty. End the session when you're done handing prizes out.</div>
+            <div style={{ fontSize: 12, color: c.inkSoft, marginTop: 4, lineHeight: 1.5 }}>New spins will be told the machine is empty. Restock a prize below to keep going, or end the session when you're done handing prizes out.</div>
           </Paper>
         ) : null}
+
+        {/* v2.22.0: Find a winner */}
+        <Paper c={c} accent={c.blue} style={{ marginBottom: 16 }}>
+          <div style={{ fontWeight: 700, fontSize: 15, color: c.ink, marginBottom: 10 }}>Find a winner</div>
+          <SearchField c={c} value={winnerQuery} onChange={setWinnerQuery} placeholder="Search a name" />
+          {!winnerQ ? (
+            <div style={{ fontSize: 12, color: c.inkMute, lineHeight: 1.5 }}>Type part of a name to see what they won and whether it's been handed over.</div>
+          ) : winnerMatches.length === 0 ? (
+            <div style={{ fontSize: 12, color: c.inkMute, lineHeight: 1.5 }}>No spins this session match "{winnerQuery.trim()}".</div>
+          ) : (
+            <>
+              <div style={{ fontSize: 11, color: c.inkMute, fontWeight: 700, marginBottom: 8 }}>{winnerMatches.length} of {sorted.length} spin{sorted.length !== 1 ? 's' : ''}</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {winnerMatches.map(x => (
+                  <GachaWinnerRow key={x.key} c={c} entry={x} sub={spinTime(x.time)} actionLabel="Done" onMark={() => markCollected(x.key)} />
+                ))}
+              </div>
+            </>
+          )}
+        </Paper>
 
         {/* Hand these out */}
         <Paper c={c} accent={c.orange} style={{ marginBottom: 16 }}>
@@ -7730,6 +7863,21 @@
                   </StickerBtn>
                 </div>
               ))}
+            </div>
+          )}
+        </Paper>
+
+        {/* v2.22.0: stock, so restocking mid-event doesn't mean leaving this screen */}
+        <Paper c={c} accent={c.sun} style={{ marginBottom: 16 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+            <div style={{ fontWeight: 700, fontSize: 15, color: c.ink }}>Prize stock</div>
+            <div style={{ fontSize: 12, color: c.inkMute, fontWeight: 700 }}>{totalStock} left</div>
+          </div>
+          {prizes.length === 0 ? (
+            <div style={{ textAlign: "center", color: c.inkMute, fontSize: 13, padding: "6px 0" }}>The pool is empty. Go back to add prizes.</div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {prizes.map(p => <GachaPrizeRow key={p.id} c={c} prize={p} chance={liveOdds.pct[p.id]} />)}
             </div>
           )}
         </Paper>
@@ -7772,6 +7920,10 @@
   function GachaHistory({ c, onBack }) {
     const [history, setHistory] = useState([]);
     const [loading, setLoading] = useState(true);
+    // v2.22.0: search every past session by name, and settle a prize that
+    // was never handed over, without going through the CSV.
+    const [query, setQuery] = useState("");
+    const { confirmState, requestConfirm, handleCancel, handleConfirm } = useConfirm();
 
     useEffect(() => {
       const unwatch = FB.watch("gc:history", (val) => {
@@ -7795,8 +7947,27 @@
       downloadCsv(`gacha-history-${new Date().toISOString().slice(0, 10)}.csv`, rows);
     };
 
+    // Past sessions are stored with spins as an array, so a spin's index
+    // is its path under gc:history/{id}/spins.
+    const markHistoryCollected = (historyId, index, spin) => {
+      requestConfirm(`Mark ${spin.name}'s ${spin.prizeName} as handed over?`, async () => {
+        await FB.update({
+          [`gc:history/${historyId}/spins/${index}/collected`]: true,
+          [`gc:history/${historyId}/spins/${index}/collectedAt`]: Date.now(),
+        });
+      });
+    };
+
+    const q = query.trim().toLowerCase();
+    const searchResults = q ? history.map(h => ({
+      h,
+      hits: (h.spins || []).map((spin, index) => ({ spin, index })).filter(({ spin }) => String(spin.name || "").toLowerCase().includes(q)),
+    })).filter(r => r.hits.length > 0) : null;
+    const matchCount = searchResults ? searchResults.reduce((n, r) => n + r.hits.length, 0) : 0;
+
     return (
       <div style={{ maxWidth: 460, margin: "0 auto" }}>
+        <ConfirmModal confirmState={confirmState} onCancel={handleCancel} onConfirm={handleConfirm} />
         <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20 }}>
           <BackButton c={c} onClick={onBack} />
           <div style={{ flex: 1, fontWeight: 700, fontSize: 22, color: "#fff", textShadow: "0 2px 4px rgba(0,0,0,0.25)", lineHeight: 1.1 }}>Past gachas</div>
@@ -7808,9 +7979,47 @@
           </Paper>
         ) : (
           <>
-            <StickerBtn fill={c.paperDim} shadow={c.paperEdge} onClick={exportAll} style={{ color: c.ink, width: "100%", marginBottom: 16, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
-              <Icon name="download" size={15} /> Export all as CSV
-            </StickerBtn>
+            <Paper c={c} style={{ marginBottom: 12, padding: "12px 14px 2px" }}>
+              <SearchField c={c} value={query} onChange={setQuery} placeholder="Search a name across every gacha" />
+            </Paper>
+            {!searchResults ? (
+              <StickerBtn fill={c.paperDim} shadow={c.paperEdge} onClick={exportAll} style={{ color: c.ink, width: "100%", marginBottom: 16, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+                <Icon name="download" size={15} /> Export all as CSV
+              </StickerBtn>
+            ) : null}
+            {searchResults ? (
+              searchResults.length === 0 ? (
+                <Paper c={c} style={{ textAlign: "center", padding: "22px 20px", color: c.inkMute, fontSize: 13 }}>
+                  No one matching "{query.trim()}" in any past gacha.
+                </Paper>
+              ) : (
+                <>
+                  <div style={{ fontSize: 12, color: "#fff", fontWeight: 700, textShadow: "0 1px 2px rgba(0,0,0,0.3)", marginBottom: 10 }}>
+                    {matchCount} match{matchCount !== 1 ? 'es' : ''} in {searchResults.length} session{searchResults.length !== 1 ? 's' : ''}
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                    {searchResults.map(({ h, hits }) => (
+                      <Paper key={h.id} c={c} accent={c.sun}>
+                        <div style={{ fontWeight: 700, fontSize: 15, color: c.ink }}>{h.eventName || "Gacha session"}</div>
+                        <div style={{ fontSize: 12, color: c.inkMute, marginTop: 2, marginBottom: 10 }}>
+                          {new Date(h.startedAt).toLocaleDateString()} · {hits.length} match{hits.length !== 1 ? 'es' : ''}
+                        </div>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                          {hits.map(({ spin, index }) => (
+                            <GachaWinnerRow
+                              key={index} c={c} entry={spin}
+                              sub={new Date(spin.time).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
+                              actionLabel="Mark handed over"
+                              onMark={() => markHistoryCollected(h.id, index, spin)}
+                            />
+                          ))}
+                        </div>
+                      </Paper>
+                    ))}
+                  </div>
+                </>
+              )
+            ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
               {history.map(h => {
                 const spins = h.spins || [];
@@ -7829,12 +8038,13 @@
                           <span>{s.prizeName}</span>
                         </div>
                       ))}
-                      {spins.length > 8 ? <div style={{ fontSize: 11, color: c.inkMute, textAlign: "center", marginTop: 2 }}>+{spins.length - 8} more (in the CSV)</div> : null}
+                      {spins.length > 8 ? <div style={{ fontSize: 11, color: c.inkMute, textAlign: "center", marginTop: 2 }}>+{spins.length - 8} more (search above, or in the CSV)</div> : null}
                     </div>
                   </Paper>
                 );
               })}
             </div>
+            )}
           </>
         )}
       </div>
@@ -9769,7 +9979,7 @@
   // Bump this with every release so the live page always shows what's
   // actually deployed — no more guessing whether a paste went through,
   // or which version is live when reporting a field issue.
-  const APP_VERSION = "v2.21.1";
+  const APP_VERSION = "v2.22.0";
 
   function VersionFooter() {
     return (

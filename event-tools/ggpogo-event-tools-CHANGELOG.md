@@ -338,3 +338,16 @@ Reported at the weekend meetups: on the Code Drop, Giveaway and Gacha claim scre
 **Cleanup for people already affected.** A new `settledName()` treats any saved name under two characters as not set. Claim screens show the field again with the letter pre-filled; the landing page asks "What should we call you?" with it pre-filled; and a signed-in profile whose trainer name is a single character gets the pick-a-name screen on next load. Entries already recorded under one-letter names in past giveaway and gacha history are left as they are.
 
 No Firebase rules change.
+
+### v2.22.0 — Gacha: find a winner, restock one prize
+Two host-side fixes from the weekend's meetups, both in the Gacha.
+
+**Find a winner.** A winner who came back later to collect a physical prize could only be looked up in the history CSV: the live session's Recent spins list stops at 12, and past sessions show 8 spins each. The live session now has a Find a winner card above Hand these out, a case-insensitive name search across every spin in the session. Each match shows the prize, the time, and its status, with Done inline if it hasn't been handed over. Status reads differently by type, because code prizes are written as collected the moment they're won: "Code shown on their phone" for those, "Handed over" for physical prizes, and "Needs a code from you" for a code prize won while the stash was empty.
+
+Past gachas get the same search across all sessions. Sessions without a match are hidden while searching and the CSV button steps aside. A match that was never collected has **Mark handed over**, which goes through `useConfirm` since it edits a closed record, then writes `collected` and `collectedAt` to `gc:history/{id}/spins/{index}`. Spins are stored as an array, so the index is the path.
+
+**Restock one prize.** Every pool row now has Restock, which opens an inline field for a new remaining count, prefilled with the prize's total. The number typed becomes `remaining` outright. If it's above `quantity`, `quantity` is raised to match in the same update, since remaining can never exceed it; below the total, the total is left alone. 0 is allowed. Refill all stays as the shortcut for a full reset.
+
+The pool rows were pulled out of `GachaApp` into a shared `GachaPrizeRow`, and the live session now renders a Prize stock card with the same rows (no remove button there), so topping up mid-event doesn't mean leaving the session. The "Everything's been won" notice now points at it. A stocked-out machine reopens on the attendee side as soon as they tap Check again.
+
+New shared pieces: `SearchField`, `GachaPrizeRow`, `GachaWinnerRow`, and a `search` icon. All writes are host-side under paths already open to signed-in users, so no Firebase rules change.

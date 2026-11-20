@@ -1,8 +1,0 @@
-Fix the name field closing after one letter (v2.21.1)
-
-On the Code Drop, Giveaway and Gacha claim screens the first keystroke
-counted as a known name, which swapped the field for "Playing as",
-closed the keyboard and saved a one-letter name. "Playing as" now only
-shows for a name the screen opened with or loaded from the profile.
-Saved names under two characters are treated as unset so affected
-people get the field back, pre-filled, to correct it.

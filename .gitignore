@@ -18,3 +18,8 @@ handoff files/
 event tools source*.txt
 event-tools-FIXED.html
 ENGINEERING_HANDOFF.md
+
+# Local, never commit
+.claude/settings.local.json
+Claude outputs/
+COMMIT_MSG.txt
