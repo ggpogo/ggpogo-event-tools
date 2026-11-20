@@ -177,6 +177,10 @@
     "gc:history": {
       ".read": "auth != null",
       ".write": "auth != null"
+    },
+    "events": {
+      ".read": true,
+      ".write": false
     }
   }
 }
