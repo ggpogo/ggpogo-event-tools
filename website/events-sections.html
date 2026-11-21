@@ -1,7 +1,7 @@
 <!-- ============================================================
      GGPoGo Events Page — Sections Below Hero
      Paste into a single Custom HTML block after the Cover block.
-     Version: events-sections-v2.4
+     Version: events-sections-v2.5
      Changes:
        v1   — Initial build
        v2   — Recurring cards link to soonest matching event,
@@ -11,6 +11,8 @@
                escaped as \u0040 so sanitizer does not corrupt it
        v2.3 — Detailed console logging for diagnostics;
                fetch errors now surface the full API response
+       v2.5 - "See event photos" link under the calendar,
+               pointing to the new Gallery page (/gallery/)
      ============================================================ -->
 
 <style>
@@ -166,6 +168,26 @@
 
   .gg-cal-container iframe { display: block; width: 100%; border: none; }
 
+  /* --- PAST EVENTS (Gallery link) --- */
+  .gg-past-events {
+    display: flex; align-items: center; justify-content: space-between;
+    flex-wrap: wrap; gap: 10px 16px;
+    margin: -0.5rem 0 1.75rem; padding: 0 2px;
+    font-size: 14px; color: #3D5B82;
+  }
+
+  .gg-past-link {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-family: 'Fredoka', sans-serif; font-size: 14px; font-weight: 500;
+    padding: 0.5em 1.3em; border-radius: 50px; text-decoration: none;
+    background: #fff; color: #0E5C9E; border: 1.5px solid #1FA5DC;
+    transition: transform 0.15s, box-shadow 0.15s;
+  }
+
+  .gg-past-link:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(31,165,220,0.2); color: #0E5C9E; }
+
+  .gg-past-link svg { width: 17px; height: 17px; }
+
   /* --- CTA --- */
   .gg-events-cta {
     background: linear-gradient(135deg, rgba(125,194,92,0.12), rgba(31,165,220,0.08));
@@ -289,6 +311,15 @@
   </div>
   <div class="gg-cal-container">
     <iframe src="https://calendar.google.com/calendar/embed?height=600&amp;wkst=1&amp;ctz=America%2FLos_Angeles&amp;showPrint=0&amp;showCalendars=0&amp;showTitle=0&amp;showNav=1&amp;showTabs=1&amp;src=MGI3MWNiZGIyYWE2MjAwNmVmNWFlODYzYzkxZGZlNjQ3YWU5MzhhMDc4YWIwOTcxYTc3YzliMGQ4OTEwY2JkY0Bncm91cC5jYWxlbmRhci5nb29nbGUuY29t&amp;color=%231FA5DC" height="500" scrolling="no" loading="lazy"></iframe>
+  </div>
+
+  <!-- ===== PAST EVENTS (Gallery link) ===== -->
+  <div class="gg-past-events">
+    <span>Missed a meetup? See what it looked like.</span>
+    <a href="/gallery/" class="gg-past-link">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg>
+      See event photos
+    </a>
   </div>
 
   <!-- ===== CTA ===== -->
