@@ -1,5 +1,5 @@
 @echo off
-cd /d "%USERPROFILE%\Documents\ggpogo-event-tools"
+cd /d "%~dp0"
 
 if "%~1"=="" (
     echo ERROR: You must provide a version, e.g. commit.bat v2.12.25 "Description here"

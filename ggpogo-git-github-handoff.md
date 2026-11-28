@@ -46,8 +46,8 @@ opening two 5,700+ line files side by side. Git gives:
 ### Local folders (on Eric's Windows machine)
 
 ```
-C:\Users\niani\Documents\ggpogo-event-tools\      (app code repo)
-C:\Users\niani\Documents\ggpogo-pokemon-icons\    (icon library repo)
+C:\Users\niani\Documents\GGPoGo\Code\ggpogo-event-tools\      (app code repo)
+C:\Users\niani\Documents\GGPoGo\Code\ggpogo-pokemon-icons\    (icon library repo)
 ```
 
 Both are real git repos (`git init` + `git remote add origin ...`, or
